@@ -498,6 +498,13 @@ static int ProcessVdCommand(const wchar_t *arg) {
         VdmInternal->lpVtbl->SwitchDesktopAndMoveForegroundView(VdmInternal,
                                                                 desk);
     } else {
+        /* Defocus the current window before switching desktops.
+         * Some apps (Firefox, Discord) call FlashWindowEx when they receive
+         * WM_ACTIVATE(INACTIVE); giving focus to the shell first lets them
+         * handle the deactivation cleanly before the desktop switch removes
+         * them from view, preventing them from flashing on the new desktop. */
+        BypassForegroundLock();
+        SetForegroundWindow(GetShellWindow());
         VdmInternal->lpVtbl->SwitchDesktop(VdmInternal, desk);
     }
     desk->lpVtbl->Release(desk);
