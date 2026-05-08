@@ -24,9 +24,13 @@
 
 /* --- IVirtualDesktopManager  --- */
 static const CLSID CLSID_VDM = {
-    0xaa509086, 0x5ca9, 0x4c25,
+    0xaa509086,
+    0x5ca9,
+    0x4c25,
     {0x8f, 0x95, 0x58, 0x9d, 0x3c, 0x07, 0xb4, 0x8a}};
-static const IID IID_IVDM = {0xa5cd92ff, 0x29be, 0x454c,
+static const IID IID_IVDM = {0xa5cd92ff,
+                             0x29be,
+                             0x454c,
                              {0x8d, 0x04, 0xd8, 0x28, 0x79, 0xfb, 0x3f, 0x1b}};
 typedef struct IVDM IVDM;
 typedef struct {
@@ -46,9 +50,11 @@ struct IVDM {
 static IVDM *Vdm = NULL; /* initialized in RunServer */
 
 /* --- IServiceProvider (for bootstrapping internal interfaces) --- */
-static const IID IID_ISvcProv = {0x6D5140C1, 0x7436, 0x11CE,
-                                 {0x80, 0x34, 0x00, 0xAA,
-                                  0x00, 0x60, 0x09, 0xFA}};
+static const IID IID_ISvcProv = {
+    0x6D5140C1,
+    0x7436,
+    0x11CE,
+    {0x80, 0x34, 0x00, 0xAA, 0x00, 0x60, 0x09, 0xFA}};
 typedef struct ISvcProv ISvcProv;
 typedef struct {
     COM_IUNK_VTBL(ISvcProv);
@@ -77,9 +83,11 @@ struct IObjectArray {
  *
  * Win10 layout differs: GetID is at [3]. Adjust if needed.
  */
-static const IID IID_IVirtualDesktop = {0x3F07F4BE, 0xB107, 0x441A,
-                                        {0xAF, 0x0F, 0x39, 0xD8,
-                                         0x25, 0x29, 0x07, 0x2C}};
+static const IID IID_IVirtualDesktop = {
+    0x3F07F4BE,
+    0xB107,
+    0x441A,
+    {0xAF, 0x0F, 0x39, 0xD8, 0x25, 0x29, 0x07, 0x2C}};
 typedef struct IVirtualDesktop IVirtualDesktop;
 typedef struct {
     COM_IUNK_VTBL(IVirtualDesktop);
@@ -120,17 +128,22 @@ struct IVirtualDesktop {
  * GitHub - Markus Scholtes maintains per-build interface files and typically
  * updates within days of a new Windows release.
  */
-static const CLSID CLSID_ImmersiveShell = {0xC2F03A33, 0x21F5, 0x47FA,
-                                           {0xB4, 0xBB, 0x15, 0x63,
-                                            0x62, 0xA2, 0xF2, 0x39}};
+static const CLSID CLSID_ImmersiveShell = {
+    0xC2F03A33,
+    0x21F5,
+    0x47FA,
+    {0xB4, 0xBB, 0x15, 0x63, 0x62, 0xA2, 0xF2, 0x39}};
 /* Stable service identifier - used as the SID argument to QueryService */
-static const GUID CLSID_VDMI = {0xC5E0CDCA, 0x7B6E, 0x41B2,
-                                {0x9F, 0xC4, 0xD9, 0x39,
-                                 0x75, 0xCC, 0x46, 0x7B}};
+static const GUID CLSID_VDMI = {
+    0xC5E0CDCA,
+    0x7B6E,
+    0x41B2,
+    {0x9F, 0xC4, 0xD9, 0x39, 0x75, 0xCC, 0x46, 0x7B}};
 /* Interface IID - changes with Windows builds; update here when it does */
-static const IID IID_IVDMI = {0x53F5CA0B, 0x158F, 0x4124,
-                              {0x90, 0x0C, 0x05, 0x71,
-                               0x58, 0x06, 0x0B, 0x27}};
+static const IID IID_IVDMI = {0x53F5CA0B,
+                              0x158F,
+                              0x4124,
+                              {0x90, 0x0C, 0x05, 0x71, 0x58, 0x06, 0x0B, 0x27}};
 typedef struct IVDMI IVDMI;
 typedef struct {
     COM_IUNK_VTBL(IVDMI);
@@ -180,7 +193,7 @@ static int CmpPid(const void *a, const void *b) {
 
 #define HWND_CACHE_SIZE 16
 static struct {
-    wchar_t exe[EXE_NAME_MAX]; /* basenames only — was MAX_PATH, ~6KB BSS saved */
+    wchar_t exe[EXE_NAME_MAX];
     HWND hwnd;
 } HwndCache[HWND_CACHE_SIZE];
 static int HwndCacheCount = 0;
@@ -434,8 +447,8 @@ static int ProcessAppCommand(const wchar_t *arg, BOOL global) {
         }
     }
     MaybeRebuildPidCache();
-    FindCtx ctx = {.exe = matchExe, .cls = AutoClass(matchExe),
-                   .global = global};
+    FindCtx ctx = {
+        .exe = matchExe, .cls = AutoClass(matchExe), .global = global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
     if (ctx.found && !global && ctx.matchCount == 1)
         StoreHwndCache(matchExe, ctx.found);
@@ -746,28 +759,93 @@ static int ProcessMaxCommand(void) {
 }
 
 /*
+ * Returns TRUE if fg occupies the requested half (or quarter on that side)
+ * of its monitor's work area.
+ */
+static BOOL IsSnappedTo(HWND fg, const wchar_t *dir) {
+    HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {.cbSize = sizeof(mi)};
+    RECT r;
+    if (!GetMonitorInfoW(mon, &mi) || !GetWindowRect(fg, &r))
+        return FALSE;
+    const RECT *wa = &mi.rcWork;
+    int midX = (wa->left + wa->right) / 2;
+    int midY = (wa->top + wa->bottom) / 2;
+    const int tol = 24;
+    if (wcscmp(dir, L"left") == 0)
+        return abs(r.left - wa->left) < tol && abs(r.right - midX) < tol;
+    if (wcscmp(dir, L"right") == 0)
+        return abs(r.right - wa->right) < tol && abs(r.left - midX) < tol;
+    if (wcscmp(dir, L"up") == 0)
+        return abs(r.top - wa->top) < tol && abs(r.bottom - midY) < tol;
+    if (wcscmp(dir, L"down") == 0)
+        return abs(r.bottom - wa->bottom) < tol && abs(r.top - midY) < tol;
+    return FALSE;
+}
+
+/*
+ * Inject the Win+direction shortcut to trigger Windows' own snap for fg.
+ *
+ * Win+dir on a window snapped to the opposite half unsnaps to floating
+ * instead of crossing to the target half. Send the sequence twice - first
+ * press unsnaps, second press snaps to target. Both sequences are batched
+ * into one SendInput call so they serialize through the input queue without
+ * needing a sleep.
+ *
+ * Floating windows need no special treatment — Win+dir snaps directly.
+ */
+static void NativeSnap(HWND fg, const wchar_t *dir) {
+    BOOL useAlt = (wcscmp(dir, L"up") == 0 || wcscmp(dir, L"down") == 0);
+    WORD vk = wcscmp(dir, L"left") == 0    ? VK_LEFT
+              : wcscmp(dir, L"right") == 0 ? VK_RIGHT
+              : wcscmp(dir, L"up") == 0    ? VK_UP
+                                           : VK_DOWN;
+
+    const wchar_t *opp = wcscmp(dir, L"left") == 0    ? L"right"
+                         : wcscmp(dir, L"right") == 0 ? L"left"
+                         : wcscmp(dir, L"up") == 0    ? L"down"
+                                                      : L"up";
+    int repeat = IsSnappedTo(fg, opp) ? 2 : 1;
+
+    INPUT inp[20];
+    int n = 0;
+
+    for (int r = 0; r < repeat; r++) {
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}};
+        if (useAlt)
+            inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_MENU}};
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = vk}};
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                           .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}};
+        if (useAlt)
+            inp[n++] =
+                (INPUT){.type = INPUT_KEYBOARD,
+                        .ki = {.wVk = VK_MENU, .dwFlags = KEYEVENTF_KEYUP}};
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                           .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}};
+    }
+    SendInput(n, inp, sizeof(INPUT));
+}
+
+/*
  * helm swap[:left|right|up|down]
  *
- * With a direction: searches for a snapped neighbour in that direction.
- *   - Found: swaps the two window rects atomically.
- *   - Not found: snaps fg to the corresponding half of the work area.
+ * With direction: find snapped neighbour in that direction.
+ *   - Found: swap the window at that half
+ *   - Not found: NativeSnap fg to that half.
  *
- * Without a direction (plain "swap"): original behaviour — searches both
- * horizontal sides and swaps with whichever neighbour is found first.
+ * Without direction: search both horizontal sides, swap with first found.
  */
 static int ProcessSwapCommand(const wchar_t *arg) {
-    /* arg is "" (undirected) or ":left"/":right"/":up"/":down" */
     const wchar_t *dir = (arg[0] == L':') ? arg + 1 : NULL;
 
     HWND fg = GetForegroundWindow();
     if (!fg)
         return 0;
-
-    HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi = {.cbSize = sizeof(mi)};
-    if (!GetMonitorInfoW(mon, &mi))
-        return 1;
-    const RECT wa = mi.rcWork;
+    if (fg == GetShellWindow() || fg == GetDesktopWindow())
+        return 0;
+    if (dir && IsSnappedTo(fg, dir))
+        return 0;
 
     RECT fgRect;
     GetWindowRect(fg, &fgRect);
@@ -801,30 +879,13 @@ static int ProcessSwapCommand(const wchar_t *arg) {
     if (!adj.found) {
         if (!dir)
             return 0;
-
-        RECT snap = wa;
-        const int halfW = (wa.right - wa.left) / 2;
-        const int halfH = (wa.bottom - wa.top) / 2;
-        if (wcscmp(dir, L"left") == 0)
-            snap.right = wa.left + halfW;
-        else if (wcscmp(dir, L"right") == 0)
-            snap.left = wa.left + halfW;
-        else if (wcscmp(dir, L"up") == 0)
-            snap.bottom = wa.top + halfH;
-        else if (wcscmp(dir, L"down") == 0)
-            snap.top = wa.top + halfH;
-        SetWindowPos(fg, NULL, snap.left, snap.top, snap.right - snap.left,
-                     snap.bottom - snap.top, SWP_RESIZE);
+        NativeSnap(fg, dir);
         return 0;
     }
 
     RECT adjRect;
     GetWindowRect(adj.found, &adjRect);
 
-    /* Plain SetWindowPos rather than DeferWindowPos: the latter is all-or-
-     * nothing across both windows, and a single failing call (e.g. cross-
-     * integrity adj) would silently drop the fg move too. See the same fix
-     * in ProcessSzCommand. */
     SetWindowPos(fg, NULL, adjRect.left, adjRect.top,
                  adjRect.right - adjRect.left, adjRect.bottom - adjRect.top,
                  SWP_RESIZE);
@@ -962,7 +1023,8 @@ static BOOL TrySendToPipe(const wchar_t *cmd) {
 }
 
 static void SpawnDaemon(void) {
-    /* The current process is helm.exe, so its full path is what we re-launch. */
+    /* The current process is helm.exe, so its full path is what we re-launch.
+     */
     wchar_t self[MAX_PATH], cmd[MAX_PATH + 16];
     GetModuleFileNameW(NULL, self, MAX_PATH);
     StringCchPrintfW(cmd, MAX_PATH + 16, L"\"%s\" --server", self);
