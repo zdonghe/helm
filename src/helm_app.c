@@ -102,7 +102,7 @@ typedef struct {
     HWND found;
     int matchCount;
     BOOL global;
-    BOOL pollMode;
+    BOOL stopOnFirst;
 } FindCtx;
 
 static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
@@ -121,24 +121,8 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
 
     DWORD pid;
     GetWindowThreadProcessId(hwnd, &pid);
-    BOOL match = FALSE;
-    if (ctx->pollMode) {
-        HANDLE proc =
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (!proc)
-            return TRUE;
-        wchar_t path[MAX_PATH];
-        DWORD len = MAX_PATH;
-        if (QueryFullProcessImageNameW(proc, 0, path, &len)) {
-            const wchar_t *base = wcsrchr(path, L'\\');
-            base = base ? base + 1 : path;
-            match = (lstrcmpiW(base, ctx->exe) == 0);
-        }
-        CloseHandle(proc);
-    } else {
-        const wchar_t *exe = GetExeFromPid(pid);
-        match = (exe && lstrcmpiW(exe, ctx->exe) == 0);
-    }
+    const wchar_t *exe = GetExeFromPid(pid);
+    BOOL match = (exe && lstrcmpiW(exe, ctx->exe) == 0);
     if (!match)
         return TRUE;
 
@@ -150,7 +134,7 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
     /* Filter to current virtual desktop only in non-poll, non-global mode.
      * During launch poll the new window's desktop assignment is unstable.
      */
-    if (!ctx->pollMode && !ctx->global && Vdm) {
+    if (!ctx->stopOnFirst && !ctx->global && Vdm) {
         BOOL onCurrent = FALSE;
         if (SUCCEEDED(IVDM_IsCurrent(Vdm, hwnd, &onCurrent)) && !onCurrent)
             return TRUE;
@@ -159,7 +143,7 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
     if (!ctx->found)
         ctx->found = hwnd;
     ctx->matchCount++;
-    return ctx->pollMode ? FALSE : TRUE;
+    return ctx->stopOnFirst ? FALSE : TRUE;
 }
 
 void BypassForegroundLock(void) {
@@ -170,33 +154,52 @@ void BypassForegroundLock(void) {
 typedef struct {
     wchar_t exe[EXE_NAME_MAX];
     wchar_t cls[256];
+    HANDLE hProcess;
 } LaunchPollCtx;
-
-static DWORD WINAPI LaunchPollThread(LPVOID param) {
-    LaunchPollCtx *lp = (LaunchPollCtx *)param;
-    for (int i = 0; i < 60; i++) {
-        Sleep(50);
-        FindCtx ctx = {.exe = lp->exe,
-                       .cls = lp->cls[0] ? lp->cls : NULL,
-                       .pollMode = TRUE};
-        EnumWindows(EnumProc, (LPARAM)&ctx);
-        if (ctx.found) {
-            if (IsIconic(ctx.found))
-                ShowWindow(ctx.found, SW_RESTORE);
-            BypassForegroundLock();
-            SetForegroundWindow(ctx.found);
-            break;
-        }
-    }
-    free(lp);
-    return 0;
-}
 
 static void FocusHwnd(HWND h) {
     if (IsIconic(h))
         ShowWindow(h, SW_RESTORE);
     BypassForegroundLock();
     SetForegroundWindow(h);
+}
+static DWORD WINAPI LaunchPollThread(LPVOID param) {
+    LaunchPollCtx *lp = (LaunchPollCtx *)param;
+
+    /* Fast path: wait until the app's message pump is running, then scan
+     * once. Covers most GUI apps (browsers, terminals, editors). */
+    if (lp->hProcess) {
+        WaitForInputIdle(lp->hProcess, 5000);
+        CloseHandle(lp->hProcess);
+        lp->hProcess = NULL;
+        MaybeRebuildPidCache();
+        FindCtx ctx = {.exe = lp->exe,
+                       .cls = lp->cls[0] ? lp->cls : NULL,
+                       .stopOnFirst = TRUE};
+        EnumWindows(EnumProc, (LPARAM)&ctx);
+        if (ctx.found) {
+            FocusHwnd(ctx.found);
+            free(lp);
+            return 0;
+        }
+    }
+
+    /* Fallback: console wrappers, Electron, or no process handle.
+     * Force cache rebuild every iteration so TTL does not add latency. */
+    for (int i = 0; i < 60; i++) {
+        Sleep(50);
+        ForceRebuildPidCache();
+        FindCtx ctx = {.exe = lp->exe,
+                       .cls = lp->cls[0] ? lp->cls : NULL,
+                       .stopOnFirst = TRUE};
+        EnumWindows(EnumProc, (LPARAM)&ctx);
+        if (ctx.found) {
+            FocusHwnd(ctx.found);
+            break;
+        }
+    }
+    free(lp);
+    return 0;
 }
 
 static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
@@ -205,10 +208,9 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
         return;
     }
 
+    HANDLE hProcess = NULL;
+
     if (admin || !IsElevated()) {
-        /* Normal path: direct ShellExecuteEx.
-         * --admin uses "runas" for a UAC prompt.
-         * Non-elevated uses "open" — same as before. */
         SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
                                  .fMask = SEE_MASK_NOCLOSEPROCESS,
                                  .lpVerb = admin ? L"runas" : L"open",
@@ -218,11 +220,9 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
             return;
         if (sei.hProcess) {
             AllowSetForegroundWindow(GetProcessId(sei.hProcess));
-            CloseHandle(sei.hProcess);
+            hProcess = sei.hProcess; /* thread takes ownership */
         }
     } else if (!ShellExecAsUser(launchExe, NULL)) {
-        /* Elevated without --admin: de-elevate via explorer shell.
-         * Fall through to normal launch if explorer is unavailable. */
         OutputDebugStringW(
             L"[helm] ShellExecAsUser failed, launching elevated\n");
         SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
@@ -234,22 +234,30 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
             return;
         if (sei.hProcess) {
             AllowSetForegroundWindow(GetProcessId(sei.hProcess));
-            CloseHandle(sei.hProcess);
+            hProcess = sei.hProcess;
         }
     } else {
         AllowSetForegroundWindow(ASFW_ANY);
+        /* ShellExecAsUser path: no handle, hProcess stays NULL */
     }
 
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));
-    if (!lp)
+    if (!lp) {
+        if (hProcess)
+            CloseHandle(hProcess);
         return;
+    }
     StringCchCopyW(lp->exe, EXE_NAME_MAX, ctx->exe);
     StringCchCopyW(lp->cls, 256, ctx->cls ? ctx->cls : L"");
+    lp->hProcess = hProcess;
     HANDLE t = CreateThread(NULL, 0, LaunchPollThread, lp, 0, NULL);
     if (t)
         CloseHandle(t);
-    else
+    else {
+        if (lp->hProcess)
+            CloseHandle(lp->hProcess);
         free(lp);
+    }
 }
 
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {

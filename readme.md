@@ -121,12 +121,14 @@ The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
 - **HWND cache** - 16-slot LRU of exe->window handle, validated against `IsWindowVisible` and `DwmGetWindowAttribute(DWMWA_CLOAKED)` on hit
 
 ## Weird Windows Behaviors
-undocumented win + alt + left/right
 
-win + alt + down requires two presses whereas everything else requires one
+There are two undocumented shortcuts I found while working on this project, Win + Alt + Left and Win + Alt + Right. They seem to be like "absolute snapping", where no matter the situation, the window will snap to the entire left/right half. The biggest difference between Win + Alt + Left/Right and Win + Left/Right is when the window is currently snapped to the top or bottom half. Normally, with Win + Left/Right, the window will become a quarter window, whereas with Win + Alt + Left/Right, it snaps to the full left/right half.
+
+Second, Win + Alt + Down requires two presses from a maximized window to snap to the bottom, whereas Win + Alt + any other direction instantly snaps to the correct position.
 
 ## Acknowledgements
-virtual desktop [MScholtes/VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
+
+Thanks to [MScholtes/VirtualDesktop](https://github.com/MScholtes/VirtualDesktop), which provided information that allows me to programmatically interact with virtual desktops.
 
 ## Why not komorebi / GlazeWM
 

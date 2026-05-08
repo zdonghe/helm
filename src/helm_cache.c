@@ -44,6 +44,11 @@ void MaybeRebuildPidCache(void) {
     PidCacheExpiry = now + PIDCACHE_TTL_MS;
 }
 
+void ForceRebuildPidCache(void) {
+    PidCacheExpiry = 0;
+    MaybeRebuildPidCache();
+}
+
 const wchar_t *GetExeFromPid(DWORD pid) {
     PidEntry key = {.pid = pid};
     PidEntry *found =
