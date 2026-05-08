@@ -77,9 +77,15 @@ int ProcessSzCommand(const wchar_t *arg) {
     HWND fg = GetForegroundWindow();
     if (!fg)
         return 1;
-    if (IsIconic(fg))
-        ShowWindow(fg, SW_RESTORE);
-
+    if (IsZoomed(fg)) {
+        RECT r;
+        GetWindowRect(fg, &r);
+        SetWindowLongW(fg, GWL_STYLE,
+                       GetWindowLongW(fg, GWL_STYLE) & ~WS_MAXIMIZE);
+        SetWindowPos(fg, NULL, r.left, r.top, r.right - r.left,
+                     r.bottom - r.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
     HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {.cbSize = sizeof(mi)};
     if (!GetMonitorInfoW(mon, &mi))

@@ -120,8 +120,15 @@ The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
 - **PID cache** - process list snapshot, TTL 300ms, binary-searched by PID
 - **HWND cache** - 16-slot LRU of exe->window handle, validated against `IsWindowVisible` and `DwmGetWindowAttribute(DWMWA_CLOAKED)` on hit
 
+## Weird Windows Behaviors
+undocumented win + alt + left/right
+
+win + alt + down requires two presses whereas everything else requires one
+
+## Acknowledgements
+virtual desktop [MScholtes/VirtualDesktop](https://github.com/MScholtes/VirtualDesktop)
+
 ## Why not komorebi / GlazeWM
 
 Both are great for full tiling layouts. If you want i3-style automatic tiling, use them. Helm is for a different workflow: you already know where your windows go, you just want fast keyboard control over focus, desktops, and snap sizing. No tiling engine, no layout rules, no advanced config, just the default Windows snapping enhanced.
-
 
