@@ -7,7 +7,7 @@ IVDMI *VdmInternal = NULL;
  * Top-level command dispatcher
  * ============================================================ */
 
-static int ProcessCommand(const wchar_t *cmd, BOOL global) {
+static int ProcessCommand(const wchar_t *cmd, BOOL global, BOOL admin) {
     if (wcsncmp(cmd, L"vd:", 3) == 0)
         return ProcessVdCommand(cmd + 3);
     if (wcsncmp(cmd, L"sz:", 3) == 0)
@@ -18,8 +18,10 @@ static int ProcessCommand(const wchar_t *cmd, BOOL global) {
         return ProcessMinCommand();
     if (wcsncmp(cmd, L"swap", 4) == 0 && (cmd[4] == L'\0' || cmd[4] == L':'))
         return ProcessSwapCommand(cmd + 4);
+    if (wcsncmp(cmd, L"uri:", 4) == 0)
+        return ProcessUriCommand(cmd + 4);
     const wchar_t *app = (wcsncmp(cmd, L"app:", 4) == 0) ? cmd + 4 : cmd;
-    return ProcessAppCommand(app, global);
+    return ProcessAppCommand(app, global, admin);
 }
 
 /* ============================================================
@@ -80,6 +82,7 @@ static void RunServer(void) {
                 buf[read / sizeof(wchar_t)] = 0;
                 wchar_t cmd[256] = {0};
                 BOOL global = FALSE;
+                BOOL admin = FALSE;
                 wchar_t *p = buf;
                 while (*p) {
                     while (*p == L' ' || *p == L'\t')
@@ -94,6 +97,8 @@ static void RunServer(void) {
                     if (lstrcmpiW(start, L"--global") == 0 ||
                         lstrcmpiW(start, L"--all") == 0)
                         global = TRUE;
+                    else if (lstrcmpiW(start, L"--admin") == 0)
+                        admin = TRUE;
                     else if (!cmd[0])
                         StringCchCopyW(cmd, 256, start);
                     if (!saved)
@@ -102,7 +107,7 @@ static void RunServer(void) {
                     p++;
                 }
                 if (cmd[0])
-                    ProcessCommand(cmd, global);
+                    ProcessCommand(cmd, global, admin);
             }
             DisconnectNamedPipe(pipe);
         }
@@ -196,8 +201,9 @@ int wmain(int argc, wchar_t *argv[]) {
     if (!cmdBuf[0]) {
         fwprintf(
             stderr,
-            L"Usage: %s <command> [--global]\n"
+            L"Usage: %s <command> [--global] [--admin]\n"
             L"  app:<exe>                       focus or launch app\n"
+            L"  uri:<uri>                       open URI in default handler\n"
             L"  vd:<n>                          switch to virtual desktop n\n"
             L"  vd:send:<n>                     move foreground window to "
             L"desktop n\n"

@@ -1,5 +1,75 @@
 #include "helm.h"
 
+BOOL IsElevated(void) {
+    static int cached = -1;
+    if (cached >= 0)
+        return cached;
+    BOOL elevated = FALSE;
+    HANDLE token = NULL;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        TOKEN_ELEVATION te;
+        DWORD sz = sizeof(te);
+        if (GetTokenInformation(token, TokenElevation, &te, sizeof(te), &sz))
+            elevated = te.TokenIsElevated;
+        CloseHandle(token);
+    }
+    cached = elevated;
+    return elevated;
+}
+
+BOOL ShellExecAsUser(const wchar_t *file, const wchar_t *verb) {
+    /* Find explorer.exe PID */
+    DWORD explorerPid = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return FALSE;
+    PROCESSENTRY32W pe = {.dwSize = sizeof(pe)};
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (lstrcmpiW(pe.szExeFile, L"explorer.exe") == 0) {
+                explorerPid = pe.th32ProcessID;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    if (!explorerPid)
+        return FALSE;
+
+    /* Open explorer and duplicate its (medium integrity) token */
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, explorerPid);
+    if (!hProc)
+        return FALSE;
+
+    HANDLE hToken = NULL;
+    BOOL ok = OpenProcessToken(hProc, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken);
+    CloseHandle(hProc);
+    if (!ok)
+        return FALSE;
+
+    HANDLE hDup = NULL;
+    ok = DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation,
+                          TokenPrimary, &hDup);
+    CloseHandle(hToken);
+    if (!ok)
+        return FALSE;
+
+    /* Launch file with explorer's token — inherits medium integrity */
+    wchar_t cmd[MAX_PATH + 4];
+    StringCchPrintfW(cmd, MAX_PATH + 4, L"\"%s\"", file);
+    STARTUPINFOW si = {.cb = sizeof(si),
+                       .dwFlags = STARTF_USESHOWWINDOW,
+                       .wShowWindow = SW_SHOWNORMAL};
+    PROCESS_INFORMATION pi = {0};
+    ok = CreateProcessWithTokenW(hDup, LOGON_WITH_PROFILE, NULL, cmd, 0, NULL,
+                                 NULL, &si, &pi);
+    CloseHandle(hDup);
+    if (ok) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    return ok;
+}
 static void ResolveTarget(const wchar_t *in, wchar_t *matchExe,
                           wchar_t *launchExe, size_t sz) {
     const wchar_t *base = wcsrchr(in, L'\\');
@@ -78,7 +148,8 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
         return TRUE;
 
     /* Filter to current virtual desktop only in non-poll, non-global mode.
-     * During launch poll the new window's desktop assignment is unstable. */
+     * During launch poll the new window's desktop assignment is unstable.
+     */
     if (!ctx->pollMode && !ctx->global && Vdm) {
         BOOL onCurrent = FALSE;
         if (SUCCEEDED(IVDM_IsCurrent(Vdm, hwnd, &onCurrent)) && !onCurrent)
@@ -128,22 +199,47 @@ static void FocusHwnd(HWND h) {
     SetForegroundWindow(h);
 }
 
-static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe) {
+static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     if (ctx->found) {
         FocusHwnd(ctx->found);
         return;
     }
-    SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
-                             .fMask = SEE_MASK_NOCLOSEPROCESS,
-                             .lpVerb = L"open",
-                             .lpFile = launchExe,
-                             .nShow = SW_SHOWNORMAL};
-    if (!ShellExecuteExW(&sei))
-        return;
-    if (sei.hProcess) {
-        AllowSetForegroundWindow(GetProcessId(sei.hProcess));
-        CloseHandle(sei.hProcess);
+
+    if (admin || !IsElevated()) {
+        /* Normal path: direct ShellExecuteEx.
+         * --admin uses "runas" for a UAC prompt.
+         * Non-elevated uses "open" — same as before. */
+        SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
+                                 .fMask = SEE_MASK_NOCLOSEPROCESS,
+                                 .lpVerb = admin ? L"runas" : L"open",
+                                 .lpFile = launchExe,
+                                 .nShow = SW_SHOWNORMAL};
+        if (!ShellExecuteExW(&sei))
+            return;
+        if (sei.hProcess) {
+            AllowSetForegroundWindow(GetProcessId(sei.hProcess));
+            CloseHandle(sei.hProcess);
+        }
+    } else if (!ShellExecAsUser(launchExe, NULL)) {
+        /* Elevated without --admin: de-elevate via explorer shell.
+         * Fall through to normal launch if explorer is unavailable. */
+        OutputDebugStringW(
+            L"[helm] ShellExecAsUser failed, launching elevated\n");
+        SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
+                                 .fMask = SEE_MASK_NOCLOSEPROCESS,
+                                 .lpVerb = L"open",
+                                 .lpFile = launchExe,
+                                 .nShow = SW_SHOWNORMAL};
+        if (!ShellExecuteExW(&sei))
+            return;
+        if (sei.hProcess) {
+            AllowSetForegroundWindow(GetProcessId(sei.hProcess));
+            CloseHandle(sei.hProcess);
+        }
+    } else {
+        AllowSetForegroundWindow(ASFW_ANY);
     }
+
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));
     if (!lp)
         return;
@@ -156,7 +252,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe) {
         free(lp);
 }
 
-int ProcessAppCommand(const wchar_t *arg, BOOL global) {
+int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     if (!global) {
@@ -177,6 +273,6 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global) {
     EnumWindows(EnumProc, (LPARAM)&ctx);
     if (ctx.found && !global && ctx.matchCount == 1)
         StoreHwndCache(matchExe, ctx.found);
-    FocusOrLaunch(&ctx, launchExe);
+    FocusOrLaunch(&ctx, launchExe, admin);
     return 0;
 }
