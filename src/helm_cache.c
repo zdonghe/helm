@@ -1,0 +1,87 @@
+#include "helm.h"
+
+static PidEntry PidCache[MAX_PIDS];
+static int PidCount = 0;
+static ULONGLONG PidCacheExpiry = 0;
+
+static struct {
+    wchar_t exe[EXE_NAME_MAX];
+    HWND hwnd;
+} HwndCache[HWND_CACHE_SIZE];
+static int HwndCacheCount = 0;
+static int HwndCacheNext = 0;
+
+static int CmpPid(const void *a, const void *b) {
+    DWORD pa = ((const PidEntry *)a)->pid;
+    DWORD pb = ((const PidEntry *)b)->pid;
+    return (pa > pb) - (pa < pb);
+}
+
+static void BuildPidCache(void) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return;
+    PROCESSENTRY32W pe = {.dwSize = sizeof(pe)};
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (PidCount >= MAX_PIDS)
+                break;
+            PidCache[PidCount].pid = pe.th32ProcessID;
+            StringCchCopyW(PidCache[PidCount].exe, EXE_NAME_MAX, pe.szExeFile);
+            PidCount++;
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    qsort(PidCache, PidCount, sizeof(PidEntry), CmpPid);
+}
+
+void MaybeRebuildPidCache(void) {
+    ULONGLONG now = GetTickCount64();
+    if (now < PidCacheExpiry)
+        return;
+    PidCount = 0;
+    BuildPidCache();
+    PidCacheExpiry = now + PIDCACHE_TTL_MS;
+}
+
+const wchar_t *GetExeFromPid(DWORD pid) {
+    PidEntry key = {.pid = pid};
+    PidEntry *found =
+        (PidEntry *)bsearch(&key, PidCache, PidCount, sizeof(PidEntry), CmpPid);
+    return found ? found->exe : NULL;
+}
+
+HWND LookupHwndCache(const wchar_t *exe) {
+    for (int i = 0; i < HwndCacheCount; i++) {
+        if (lstrcmpiW(HwndCache[i].exe, exe) != 0)
+            continue;
+        HWND h = HwndCache[i].hwnd;
+        int cloaked = 0;
+        if (IsWindow(h) && IsWindowVisible(h)) {
+            DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
+            if (!cloaked)
+                return h;
+        }
+        HwndCache[i] = HwndCache[--HwndCacheCount]; /* swap-and-pop */
+        return NULL;
+    }
+    return NULL;
+}
+
+void StoreHwndCache(const wchar_t *exe, HWND hwnd) {
+    for (int i = 0; i < HwndCacheCount; i++) {
+        if (lstrcmpiW(HwndCache[i].exe, exe) == 0) {
+            HwndCache[i].hwnd = hwnd;
+            return;
+        }
+    }
+    int slot;
+    if (HwndCacheCount < HWND_CACHE_SIZE) {
+        slot = HwndCacheCount++;
+    } else {
+        slot = HwndCacheNext;
+        HwndCacheNext = (HwndCacheNext + 1) % HWND_CACHE_SIZE;
+    }
+    StringCchCopyW(HwndCache[slot].exe, EXE_NAME_MAX, exe);
+    HwndCache[slot].hwnd = hwnd;
+}
