@@ -111,7 +111,7 @@ struct IVirtualDesktop {
  *   [6]  GetCurrentDesktop
  *   [7]  GetDesktops
  *   [8]  GetAdjacentDesktop
- *   [9]  SwitchDesktop                              <- used by helm
+ *   [9]  SwitchDesktop
  *   [10] SwitchDesktopAndMoveForegroundView  (24H2+ only)
  *   [11] CreateDesktopW
  */

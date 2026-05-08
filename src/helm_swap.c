@@ -22,37 +22,31 @@ static BOOL IsSnappedTo(HWND fg, const wchar_t *dir) {
 }
 
 /*
- * Inject Win+dir to trigger Windows' own snap.
- * If fg is snapped to the opposite half, send the sequence twice:
- * first press unsnaps, second snaps to target. Both are batched into one
- * SendInput so they serialize without a sleep.
+ * Inject Win+Alt+dir to trigger Windows' own snap.
+ *
+ * Win+Alt+dir is used for all four directions: it consistently snaps to the
+ * target half without the cycling/monitor-hopping behaviour of Win+Left/Right.
+ *
+ * Down only: two presses are needed when the window is maximized (first
+ * press restores, second snaps).
  */
 static void NativeSnap(HWND fg, const wchar_t *dir) {
-    BOOL useAlt = (wcscmp(dir, L"up") == 0 || wcscmp(dir, L"down") == 0);
     WORD vk = wcscmp(dir, L"left") == 0    ? VK_LEFT
               : wcscmp(dir, L"right") == 0 ? VK_RIGHT
               : wcscmp(dir, L"up") == 0    ? VK_UP
                                            : VK_DOWN;
-    const wchar_t *opp = wcscmp(dir, L"left") == 0    ? L"right"
-                         : wcscmp(dir, L"right") == 0 ? L"left"
-                         : wcscmp(dir, L"up") == 0    ? L"down"
-                                                      : L"up";
-
-    int repeat = IsSnappedTo(fg, opp) ? 2 : 1;
-    INPUT inp[20];
+    int repeat = (wcscmp(dir, L"down") == 0 && IsZoomed(fg)) ? 2 : 1;
+    INPUT inp[24];
     int n = 0;
 
     for (int r = 0; r < repeat; r++) {
         inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}};
-        if (useAlt)
-            inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_MENU}};
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_MENU}};
         inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = vk}};
         inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
                            .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}};
-        if (useAlt)
-            inp[n++] =
-                (INPUT){.type = INPUT_KEYBOARD,
-                        .ki = {.wVk = VK_MENU, .dwFlags = KEYEVENTF_KEYUP}};
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                           .ki = {.wVk = VK_MENU, .dwFlags = KEYEVENTF_KEYUP}};
         inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
                            .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}};
     }

@@ -62,7 +62,7 @@ HWND LookupHwndCache(const wchar_t *exe) {
             if (!cloaked)
                 return h;
         }
-        HwndCache[i] = HwndCache[--HwndCacheCount]; /* swap-and-pop */
+        HwndCache[i] = HwndCache[--HwndCacheCount];
         return NULL;
     }
     return NULL;

@@ -1,6 +1,5 @@
 #include "helm.h"
 
-/* Global definitions — declared extern in helm.h */
 IVDM *Vdm = NULL;
 IVDMI *VdmInternal = NULL;
 
