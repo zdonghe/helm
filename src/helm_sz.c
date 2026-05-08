@@ -1,5 +1,23 @@
 #include "helm.h"
 
+/* Assigns newEdge to newFg.fg_field, finds the adjacent window on
+ * adj.edge_field == edge_val, and pushes it symmetrically.  adj_w must be
+ * the adjacent window's size along this axis (right-left or bottom-top) so
+ * the MIN_DIM guard is evaluated correctly regardless of direction. */
+#define SZ_EDGE(near, edge_field, edge_val, fg_field, min_adj, adj_w)          \
+    adj.edge_field = (edge_val);                                               \
+    EnumWindows(FindAdjacentProc, (LPARAM) & adj);                             \
+    newFg.fg_field = newEdge;                                                  \
+    if (adj.found) {                                                           \
+        GetWindowRect(adj.found, &newAdj);                                     \
+        int off = newAdj.near - (edge_val);                                    \
+        newAdj.near = newEdge + off;                                           \
+        if ((adj_w) < MIN_DIM) {                                               \
+            newAdj.near = (min_adj);                                           \
+            newFg.fg_field = newAdj.near - off;                                \
+        }                                                                      \
+    }
+
 BOOL CALLBACK FindAdjacentProc(HWND hwnd, LPARAM lp) {
     AdjacentCtx *ctx = (AdjacentCtx *)lp;
     if (hwnd == ctx->skip)
@@ -73,6 +91,29 @@ int ProcessSzCommand(const wchar_t *arg) {
     RECT fg0;
     GetWindowRect(fg, &fg0);
 
+    /* Redirect to the opposite edge only if the window is already touching the
+     * monitor boundary (e.g. sz:left:10 on a left-snapped window shrinks from
+     * the right).  If the move would merely overshoot, clamp to the boundary
+     * instead - handled per-direction below. */
+    const wchar_t *dir = arg;
+    if (wcsncmp(arg, L"left", 4) == 0 && fg0.left <= wa.left &&
+        fg0.left - (pct * monW) / 100 < wa.left) {
+        dir = L"right";
+        pct = -pct;
+    } else if (wcsncmp(arg, L"right", 5) == 0 && fg0.right >= wa.right &&
+               fg0.right + (pct * monW) / 100 > wa.right) {
+        dir = L"left";
+        pct = -pct;
+    } else if (wcsncmp(arg, L"up", 2) == 0 && fg0.top <= wa.top &&
+               fg0.top - (pct * monH) / 100 < wa.top) {
+        dir = L"down";
+        pct = -pct;
+    } else if (wcsncmp(arg, L"down", 4) == 0 && fg0.bottom >= wa.bottom &&
+               fg0.bottom + (pct * monH) / 100 > wa.bottom) {
+        dir = L"up";
+        pct = -pct;
+    }
+
     AdjacentCtx adj = {.edgeX = -1,
                        .edgeY = -1,
                        .rightEdgeX = -1,
@@ -85,84 +126,42 @@ int ProcessSzCommand(const wchar_t *arg) {
     RECT newFg = fg0, newAdj = {0};
     int newEdge;
 
-    if (wcsncmp(arg, L"right", 5) == 0) {
+    if (wcsncmp(dir, L"right", 5) == 0) {
         newEdge = fg0.right + (pct * monW) / 100;
         if (newEdge > wa.right)
             newEdge = wa.right;
         if (newEdge < fg0.left + MIN_DIM)
             newEdge = fg0.left + MIN_DIM;
-        adj.edgeX = fg0.right;
-        EnumWindows(FindAdjacentProc, (LPARAM)&adj);
-        newFg.right = newEdge;
-        if (adj.found) {
-            GetWindowRect(adj.found, &newAdj);
-            int off = newAdj.left - fg0.right; /* typically -14 on Win11 */
-            newAdj.left = newEdge + off;
-            if (newAdj.right - newAdj.left < MIN_DIM) {
-                newAdj.left = newAdj.right - MIN_DIM;
-                newFg.right = newAdj.left - off;
-            }
-        }
-    } else if (wcsncmp(arg, L"left", 4) == 0) {
+        SZ_EDGE(left, edgeX, fg0.right, right, newAdj.right - MIN_DIM,
+                newAdj.right - newAdj.left);
+    } else if (wcsncmp(dir, L"left", 4) == 0) {
         newEdge = fg0.left - (pct * monW) / 100;
         if (newEdge < wa.left)
             newEdge = wa.left;
         if (newEdge > fg0.right - MIN_DIM)
             newEdge = fg0.right - MIN_DIM;
-        adj.rightEdgeX = fg0.left;
-        EnumWindows(FindAdjacentProc, (LPARAM)&adj);
-        newFg.left = newEdge;
-        if (adj.found) {
-            GetWindowRect(adj.found, &newAdj);
-            int off = newAdj.right - fg0.left; /* typically +14 on Win11 */
-            newAdj.right = newEdge + off;
-            if (newAdj.right - newAdj.left < MIN_DIM) {
-                newAdj.right = newAdj.left + MIN_DIM;
-                newFg.left = newAdj.right - off;
-            }
-        }
-    } else if (wcsncmp(arg, L"down", 4) == 0) {
+        SZ_EDGE(right, rightEdgeX, fg0.left, left, newAdj.left + MIN_DIM,
+                newAdj.right - newAdj.left);
+    } else if (wcsncmp(dir, L"down", 4) == 0) {
         newEdge = fg0.bottom + (pct * monH) / 100;
         if (newEdge > wa.bottom)
             newEdge = wa.bottom;
         if (newEdge < fg0.top + MIN_DIM)
             newEdge = fg0.top + MIN_DIM;
-        adj.edgeY = fg0.bottom;
-        EnumWindows(FindAdjacentProc, (LPARAM)&adj);
-        newFg.bottom = newEdge;
-        if (adj.found) {
-            GetWindowRect(adj.found, &newAdj);
-            int off = newAdj.top - fg0.bottom; /* typically -14 on Win11 */
-            newAdj.top = newEdge + off;
-            if (newAdj.bottom - newAdj.top < MIN_DIM) {
-                newAdj.top = newAdj.bottom - MIN_DIM;
-                newFg.bottom = newAdj.top - off;
-            }
-        }
-    } else if (wcsncmp(arg, L"up", 2) == 0) {
+        SZ_EDGE(top, edgeY, fg0.bottom, bottom, newAdj.bottom - MIN_DIM,
+                newAdj.bottom - newAdj.top);
+    } else if (wcsncmp(dir, L"up", 2) == 0) {
         newEdge = fg0.top - (pct * monH) / 100;
         if (newEdge < wa.top)
             newEdge = wa.top;
         if (newEdge > fg0.bottom - MIN_DIM)
             newEdge = fg0.bottom - MIN_DIM;
-        adj.bottomEdgeY = fg0.top;
-        EnumWindows(FindAdjacentProc, (LPARAM)&adj);
-        newFg.top = newEdge;
-        if (adj.found) {
-            GetWindowRect(adj.found, &newAdj);
-            int off = newAdj.bottom - fg0.top; /* typically +14 on Win11 */
-            newAdj.bottom = newEdge + off;
-            if (newAdj.bottom - newAdj.top < MIN_DIM) {
-                newAdj.bottom = newAdj.top + MIN_DIM;
-                newFg.top = newAdj.bottom - off;
-            }
-        }
+        SZ_EDGE(bottom, bottomEdgeY, fg0.top, top, newAdj.top + MIN_DIM,
+                newAdj.bottom - newAdj.top);
     } else {
         return 1;
     }
 
-    /* Sequential SetWindowPos: fg move always lands; adj failure loses only
-     * adj. */
     SetWindowPos(fg, NULL, newFg.left, newFg.top, newFg.right - newFg.left,
                  newFg.bottom - newFg.top, SWP_RESIZE);
     if (adj.found)
