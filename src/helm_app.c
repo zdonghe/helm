@@ -18,21 +18,8 @@ BOOL IsElevated(void) {
 }
 
 BOOL ShellExecAsUser(const wchar_t *file, const wchar_t *verb) {
-    /* Find explorer.exe PID */
-    DWORD explorerPid = 0;
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE)
-        return FALSE;
-    PROCESSENTRY32W pe = {.dwSize = sizeof(pe)};
-    if (Process32FirstW(snap, &pe)) {
-        do {
-            if (lstrcmpiW(pe.szExeFile, L"explorer.exe") == 0) {
-                explorerPid = pe.th32ProcessID;
-                break;
-            }
-        } while (Process32NextW(snap, &pe));
-    }
-    CloseHandle(snap);
+    MaybeRebuildPidCache();
+    DWORD explorerPid = GetPidFromExe(L"explorer.exe");
     if (!explorerPid)
         return FALSE;
 
@@ -160,6 +147,9 @@ typedef struct {
 static void FocusHwnd(HWND h) {
     if (IsIconic(h))
         ShowWindow(h, SW_RESTORE);
+    SetWindowPos(h, HWND_TOP, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING |
+                     SWP_ASYNCWINDOWPOS);
     BypassForegroundLock();
     SetForegroundWindow(h);
 }
@@ -186,8 +176,10 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
 
     /* Fallback: console wrappers, Electron, or no process handle.
      * Force cache rebuild every iteration so TTL does not add latency. */
-    for (int i = 0; i < 60; i++) {
-        Sleep(50);
+    int delay = 30;
+    for (int i = 0; i < 16; i++) {
+        Sleep(delay);
+        delay = delay < 200 ? delay * 2 : 200;
         ForceRebuildPidCache();
         FindCtx ctx = {.exe = lp->exe,
                        .cls = lp->cls[0] ? lp->cls : NULL,
@@ -263,6 +255,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
+    MaybeRebuildPidCache();
     if (!global) {
         HWND cached = LookupHwndCache(matchExe);
         if (cached) {
@@ -275,12 +268,15 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
             }
         }
     }
-    MaybeRebuildPidCache();
     FindCtx ctx = {
         .exe = matchExe, .cls = AutoClass(matchExe), .global = global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
-    if (ctx.found && !global && ctx.matchCount == 1)
-        StoreHwndCache(matchExe, ctx.found);
+    if (ctx.found && !global) {
+        if (ctx.matchCount == 1)
+            StoreHwndCache(matchExe, ctx.found);
+        else
+            EvictHwndCache(matchExe);
+    }
     FocusOrLaunch(&ctx, launchExe, admin);
     return 0;
 }

@@ -14,9 +14,10 @@ Commands are sent to `\\.\pipe\helm`. The client mode of `helm.exe` then perform
 helm app:firefox
 helm app:wt
 helm app:msedge --global
+helm app:wt --admin
 ```
 
-Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread.
+Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin.
 
 Special aliases: `wt` and `windowsterminal` both resolve to `WindowsTerminal.exe`.
 
@@ -30,7 +31,7 @@ helm vd:send:3
 
 `vd:<n>` switches to virtual desktop n (starting at 1). `vd:send:<n>` moves the focused window to desktop n and follows it.
 
-Uses `IVirtualDesktopManagerInternal` — proper OS-level switching, so alt-tab, the taskbar, and snap groups all behave correctly.
+Uses `IVirtualDesktopManagerInternal` - proper OS-level switching, so alt-tab, the taskbar, and snap groups all behave correctly.
 
 ### Window resize
 
@@ -73,8 +74,8 @@ as a single binding that both snaps and swaps.
 
 | Prefix | Destination |
 |--------|-------------|
-| `app:firefox` | helm pipe -> focus or launch firefox |
-| `vd:2` | helm pipe -> switch to virtual desktop 2 |
+| `app:firefox` | helm pipe → focus or launch firefox |
+| `vd:2` | helm pipe → switch to virtual desktop 2 |
 | `sz:left:+5` | helm pipe → resize left-snapped window |
 
 Example kanata layer (in `.kbd` config):
@@ -118,7 +119,7 @@ Subsequent calls connect immediately - round-trip is under a millisecond on loca
 
 The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
 - **PID cache** - process list snapshot, TTL 300ms, binary-searched by PID
-- **HWND cache** - 16-slot LRU of exe->window handle, validated against `IsWindowVisible` and `DwmGetWindowAttribute(DWMWA_CLOAKED)` on hit
+- **HWND cache** - 16-slot LRU of exe → window handle, validated against `IsWindowVisible` and `DwmGetWindowAttribute(DWMWA_CLOAKED)` on hit
 
 ## Weird Windows Behaviors
 

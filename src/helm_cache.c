@@ -61,10 +61,14 @@ HWND LookupHwndCache(const wchar_t *exe) {
         if (lstrcmpiW(HwndCache[i].exe, exe) != 0)
             continue;
         HWND h = HwndCache[i].hwnd;
+        /* Validate exe ownership: Windows recycles HWND values */
+        DWORD pid = 0;
         int cloaked = 0;
-        if (IsWindow(h) && IsWindowVisible(h)) {
+        if (h && IsWindow(h) && IsWindowVisible(h) &&
+            GetWindowThreadProcessId(h, &pid)) {
             DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
-            if (!cloaked)
+            const wchar_t *owner = GetExeFromPid(pid);
+            if (!cloaked && owner && lstrcmpiW(owner, exe) == 0)
                 return h;
         }
         HwndCache[i] = HwndCache[--HwndCacheCount];
@@ -89,4 +93,21 @@ void StoreHwndCache(const wchar_t *exe, HWND hwnd) {
     }
     StringCchCopyW(HwndCache[slot].exe, EXE_NAME_MAX, exe);
     HwndCache[slot].hwnd = hwnd;
+}
+
+void EvictHwndCache(const wchar_t *exe) {
+    for (int i = 0; i < HwndCacheCount; i++) {
+        if (lstrcmpiW(HwndCache[i].exe, exe) == 0) {
+            HwndCache[i] = HwndCache[--HwndCacheCount];
+            return;
+        }
+    }
+}
+
+DWORD GetPidFromExe(const wchar_t *exe) {
+    for (int i = 0; i < PidCount; i++) {
+        if (lstrcmpiW(PidCache[i].exe, exe) == 0)
+            return PidCache[i].pid;
+    }
+    return 0;
 }
