@@ -252,7 +252,7 @@ typedef struct {
 /* helm_cache.c */
 void MaybeRebuildPidCache(void);
 const wchar_t *GetExeFromPid(DWORD pid);
-HWND LookupHwndCache(const wchar_t *exe);
+HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls);
 void StoreHwndCache(const wchar_t *exe, HWND hwnd);
 void EvictHwndCache(const wchar_t *exe);
 void ForceRebuildPidCache(void);

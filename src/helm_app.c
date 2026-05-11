@@ -257,7 +257,7 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     MaybeRebuildPidCache();
     if (!global) {
-        HWND cached = LookupHwndCache(matchExe);
+        HWND cached = LookupHwndCache(matchExe, AutoClass(matchExe));
         if (cached) {
             BOOL onCurrent = TRUE;
             if (Vdm)
