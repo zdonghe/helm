@@ -154,13 +154,18 @@ static void SpawnDaemon(void) {
 }
 
 static BOOL SendWithSpawn(const wchar_t *cmd) {
-    for (int i = 0; i < 2; i++) {
-        if (TrySendToPipe(cmd))
-            return TRUE;
-        Sleep(80);
+    HANDLE ev = OpenEventW(SYNCHRONIZE, FALSE, READY_EVENT_NAME);
+    if (ev) {
+        WaitForSingleObject(ev, 500);
+        CloseHandle(ev);
+        for (int i = 0; i < 2; i++) {
+            if (TrySendToPipe(cmd))
+                return TRUE;
+            Sleep(80);
+        }
     }
     SpawnDaemon();
-    HANDLE ev = NULL;
+    ev = NULL;
     for (int i = 0; i < 10; i++) {
         ev = OpenEventW(SYNCHRONIZE, FALSE, READY_EVENT_NAME);
         if (ev)
