@@ -60,48 +60,53 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
     for (int i = 0; i < HwndCacheCount; i++) {
         if (lstrcmpiW(HwndCache[i].exe, exe) != 0)
             continue;
+
+        /* Validate exe ownership: Windows recycles HWND values. */
         HWND h = HwndCache[i].hwnd;
-        /* Validate exe ownership: Windows recycles HWND values */
         DWORD pid = 0;
+        if (!h || !IsWindow(h) || !IsWindowVisible(h) ||
+            !GetWindowThreadProcessId(h, &pid))
+            goto evict;
+        const wchar_t *owner = GetExeFromPid(pid);
+        if (!owner || lstrcmpiW(owner, exe) != 0)
+            goto evict;
         int cloaked = 0;
-        if (h && IsWindow(h) && IsWindowVisible(h) &&
-            GetWindowThreadProcessId(h, &pid)) {
-            DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
-            const wchar_t *owner = GetExeFromPid(pid);
-            if (!cloaked && owner && lstrcmpiW(owner, exe) == 0) {
-                for (HWND w = GetWindow(h, GW_HWNDPREV); w;
-                     w = GetWindow(w, GW_HWNDPREV)) {
-                    if (!IsWindowVisible(w))
-                        continue;
-                    LONG_PTR wex = GetWindowLongPtrW(w, GWL_EXSTYLE);
-                    if (wex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
-                        continue;
-                    int wCloaked = 0;
-                    DwmGetWindowAttribute(w, DWMWA_CLOAKED, &wCloaked,
-                                          sizeof(wCloaked));
-                    if (wCloaked)
-                        continue;
-                    BOOL onCurrent = FALSE;
-                    if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
-                        !onCurrent)
-                        continue;
-                    if (cls) {
-                        wchar_t wcls[256];
-                        GetClassNameW(w, wcls, 256);
-                        if (lstrcmpiW(wcls, cls) != 0)
-                            continue;
-                    }
-                    DWORD wpid = 0;
-                    GetWindowThreadProcessId(w, &wpid);
-                    const wchar_t *wexe2 = GetExeFromPid(wpid);
-                    if (wexe2 && lstrcmpiW(wexe2, exe) == 0) {
-                        HwndCache[i] = HwndCache[--HwndCacheCount];
-                        return NULL;
-                    }
-                }
-                return h;
+        DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
+        if (cloaked)
+            goto evict;
+
+        for (HWND w = GetWindow(h, GW_HWNDPREV); w;
+             w = GetWindow(w, GW_HWNDPREV)) {
+            if (!IsWindowVisible(w))
+                continue;
+            LONG_PTR wex = GetWindowLongPtrW(w, GWL_EXSTYLE);
+            if (wex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
+                continue;
+            if (cls) {
+                wchar_t wcls[256];
+                GetClassNameW(w, wcls, 256);
+                if (lstrcmpiW(wcls, cls) != 0)
+                    continue;
             }
+            DWORD wpid = 0;
+            GetWindowThreadProcessId(w, &wpid);
+            const wchar_t *wexe = GetExeFromPid(wpid);
+            if (!wexe || lstrcmpiW(wexe, exe) != 0)
+                continue;
+            int wCloaked = 0;
+            DwmGetWindowAttribute(w, DWMWA_CLOAKED, &wCloaked,
+                                  sizeof(wCloaked));
+            if (wCloaked)
+                continue;
+            BOOL onCurrent = FALSE;
+            if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
+                !onCurrent)
+                continue;
+            goto evict;
         }
+        return h;
+
+    evict:
         HwndCache[i] = HwndCache[--HwndCacheCount];
         return NULL;
     }
