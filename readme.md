@@ -61,7 +61,7 @@ helm min
 ```
 
 Instantly minimize the window.
-```
+
 
 ### Swap
 
