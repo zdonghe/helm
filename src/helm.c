@@ -80,7 +80,7 @@ static void RunServer(void) {
             if (ReadFile(pipe, buf, sizeof(buf) - 2, &read, NULL) && read > 0) {
                 read &= ~1u;
                 buf[read / sizeof(wchar_t)] = 0;
-                wchar_t cmd[256] = {0};
+                wchar_t cmd[1024] = {0};
                 BOOL global = FALSE;
                 BOOL admin = FALSE;
                 wchar_t *p = buf;
@@ -100,7 +100,7 @@ static void RunServer(void) {
                     else if (lstrcmpiW(start, L"--admin") == 0)
                         admin = TRUE;
                     else if (!cmd[0])
-                        StringCchCopyW(cmd, 256, start);
+                        StringCchCopyW(cmd, 1024, start);
                     if (!saved)
                         break;
                     *p = saved;
@@ -187,15 +187,15 @@ static BOOL SendWithSpawn(const wchar_t *cmd) {
 
 int wmain(int argc, wchar_t *argv[]) {
     BOOL server = FALSE;
-    wchar_t cmdBuf[512] = {0};
+    wchar_t cmdBuf[1024] = {0};
     for (int i = 1; i < argc; i++) {
         if (lstrcmpiW(argv[i], L"--server") == 0) {
             server = TRUE;
             continue;
         }
         if (cmdBuf[0])
-            StringCchCatW(cmdBuf, 512, L" ");
-        StringCchCatW(cmdBuf, 512, argv[i]);
+            StringCchCatW(cmdBuf, 1024, L" ");
+        StringCchCatW(cmdBuf, 1024, argv[i]);
     }
     if (server) {
         CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

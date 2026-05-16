@@ -17,7 +17,7 @@ BOOL IsElevated(void) {
     return elevated;
 }
 
-BOOL ShellExecAsUser(const wchar_t *file, const wchar_t *verb) {
+BOOL ShellExecAsUser(const wchar_t *file) {
     MaybeRebuildPidCache();
     DWORD explorerPid = GetPidFromExe(L"explorer.exe");
     if (!explorerPid)
@@ -59,18 +59,30 @@ BOOL ShellExecAsUser(const wchar_t *file, const wchar_t *verb) {
 }
 static void ResolveTarget(const wchar_t *in, wchar_t *matchExe,
                           wchar_t *launchExe, size_t sz) {
-    const wchar_t *base = wcsrchr(in, L'\\');
-    base = base ? base + 1 : in;
-    if (lstrcmpiW(base, L"wt") == 0 ||
-        lstrcmpiW(base, L"windowsterminal") == 0) {
+    const wchar_t *lastBs = wcsrchr(in, L'\\');
+    const wchar_t *lastFs = wcsrchr(in, L'/');
+    const wchar_t *sep;
+    if (lastBs && lastFs)
+        sep = lastBs > lastFs ? lastBs : lastFs;
+    else
+        sep = lastBs ? lastBs : lastFs;
+    const wchar_t *base = sep ? sep + 1 : in;
+
+    wchar_t stem[MAX_PATH];
+    StringCchCopyW(stem, MAX_PATH, base);
+    size_t slen = wcslen(stem);
+    if (slen >= 4 && _wcsicmp(stem + slen - 4, L".exe") == 0)
+        stem[slen - 4] = 0;
+
+    if (lstrcmpiW(stem, L"wt") == 0 ||
+        lstrcmpiW(stem, L"windowsterminal") == 0) {
         StringCchCopyW(matchExe, sz, L"WindowsTerminal.exe");
         StringCchCopyW(launchExe, sz, L"wt.exe");
         return;
     }
-    StringCchCopyW(matchExe, sz, base);
-    size_t len = wcslen(matchExe);
-    if (len < 4 || _wcsicmp(matchExe + len - 4, L".exe") != 0)
-        StringCchCatW(matchExe, sz, L".exe");
+
+    StringCchCopyW(matchExe, sz, stem);
+    StringCchCatW(matchExe, sz, L".exe");
     StringCchCopyW(launchExe, sz, matchExe);
 }
 
@@ -87,9 +99,8 @@ typedef struct {
     const wchar_t *exe;
     const wchar_t *cls;
     HWND found;
-    int matchCount;
     BOOL global;
-    BOOL stopOnFirst;
+    BOOL polling;
 } FindCtx;
 
 static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
@@ -109,8 +120,7 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
     DWORD pid;
     GetWindowThreadProcessId(hwnd, &pid);
     const wchar_t *exe = GetExeFromPid(pid);
-    BOOL match = (exe && lstrcmpiW(exe, ctx->exe) == 0);
-    if (!match)
+    if (!exe || lstrcmpiW(exe, ctx->exe) != 0)
         return TRUE;
 
     int cloaked = 0;
@@ -118,19 +128,14 @@ static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
     if (cloaked)
         return TRUE;
 
-    /* Filter to current virtual desktop only in non-poll, non-global mode.
-     * During launch poll the new window's desktop assignment is unstable.
-     */
-    if (!ctx->stopOnFirst && !ctx->global && Vdm) {
+    if (!ctx->polling && !ctx->global && Vdm) {
         BOOL onCurrent = FALSE;
         if (SUCCEEDED(IVDM_IsCurrent(Vdm, hwnd, &onCurrent)) && !onCurrent)
             return TRUE;
     }
 
-    if (!ctx->found)
-        ctx->found = hwnd;
-    ctx->matchCount++;
-    return ctx->stopOnFirst ? FALSE : TRUE;
+    ctx->found = hwnd;
+    return FALSE;
 }
 
 void BypassForegroundLock(void) {
@@ -140,7 +145,7 @@ void BypassForegroundLock(void) {
 
 typedef struct {
     wchar_t exe[EXE_NAME_MAX];
-    wchar_t cls[256];
+    const wchar_t *cls;
     HANDLE hProcess;
 } LaunchPollCtx;
 
@@ -163,9 +168,7 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
         CloseHandle(lp->hProcess);
         lp->hProcess = NULL;
         MaybeRebuildPidCache();
-        FindCtx ctx = {.exe = lp->exe,
-                       .cls = lp->cls[0] ? lp->cls : NULL,
-                       .stopOnFirst = TRUE};
+        FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
         EnumWindows(EnumProc, (LPARAM)&ctx);
         if (ctx.found) {
             FocusHwnd(ctx.found);
@@ -181,9 +184,7 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
         Sleep(delay);
         delay = delay < 200 ? delay * 2 : 200;
         ForceRebuildPidCache();
-        FindCtx ctx = {.exe = lp->exe,
-                       .cls = lp->cls[0] ? lp->cls : NULL,
-                       .stopOnFirst = TRUE};
+        FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
         EnumWindows(EnumProc, (LPARAM)&ctx);
         if (ctx.found) {
             FocusHwnd(ctx.found);
@@ -192,6 +193,19 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
     }
     free(lp);
     return 0;
+}
+
+static HANDLE ShellLaunch(const wchar_t *exe, const wchar_t *verb) {
+    SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
+                             .fMask = SEE_MASK_NOCLOSEPROCESS,
+                             .lpVerb = verb,
+                             .lpFile = exe,
+                             .nShow = SW_SHOWNORMAL};
+    if (!ShellExecuteExW(&sei))
+        return INVALID_HANDLE_VALUE;
+    if (sei.hProcess)
+        AllowSetForegroundWindow(GetProcessId(sei.hProcess));
+    return sei.hProcess;
 }
 
 static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
@@ -203,31 +217,15 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     HANDLE hProcess = NULL;
 
     if (admin || !IsElevated()) {
-        SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
-                                 .fMask = SEE_MASK_NOCLOSEPROCESS,
-                                 .lpVerb = admin ? L"runas" : L"open",
-                                 .lpFile = launchExe,
-                                 .nShow = SW_SHOWNORMAL};
-        if (!ShellExecuteExW(&sei))
+        hProcess = ShellLaunch(launchExe, admin ? L"runas" : L"open");
+        if (hProcess == INVALID_HANDLE_VALUE)
             return;
-        if (sei.hProcess) {
-            AllowSetForegroundWindow(GetProcessId(sei.hProcess));
-            hProcess = sei.hProcess; /* thread takes ownership */
-        }
-    } else if (!ShellExecAsUser(launchExe, NULL)) {
+    } else if (!ShellExecAsUser(launchExe)) {
         OutputDebugStringW(
             L"[helm] ShellExecAsUser failed, launching elevated\n");
-        SHELLEXECUTEINFOW sei = {.cbSize = sizeof(sei),
-                                 .fMask = SEE_MASK_NOCLOSEPROCESS,
-                                 .lpVerb = L"open",
-                                 .lpFile = launchExe,
-                                 .nShow = SW_SHOWNORMAL};
-        if (!ShellExecuteExW(&sei))
+        hProcess = ShellLaunch(launchExe, L"open");
+        if (hProcess == INVALID_HANDLE_VALUE)
             return;
-        if (sei.hProcess) {
-            AllowSetForegroundWindow(GetProcessId(sei.hProcess));
-            hProcess = sei.hProcess;
-        }
     } else {
         AllowSetForegroundWindow(ASFW_ANY);
         /* ShellExecAsUser path: no handle, hProcess stays NULL */
@@ -240,7 +238,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
         return;
     }
     StringCchCopyW(lp->exe, EXE_NAME_MAX, ctx->exe);
-    StringCchCopyW(lp->cls, 256, ctx->cls ? ctx->cls : L"");
+    lp->cls = ctx->cls;
     lp->hProcess = hProcess;
     HANDLE t = CreateThread(NULL, 0, LaunchPollThread, lp, 0, NULL);
     if (t)
@@ -256,27 +254,18 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     MaybeRebuildPidCache();
+    const wchar_t *cls = AutoClass(matchExe);
     if (!global) {
-        HWND cached = LookupHwndCache(matchExe, AutoClass(matchExe));
+        HWND cached = LookupHwndCache(matchExe, cls);
         if (cached) {
-            BOOL onCurrent = TRUE;
-            if (Vdm)
-                IVDM_IsCurrent(Vdm, cached, &onCurrent);
-            if (onCurrent) {
-                FocusHwnd(cached);
-                return 0;
-            }
+            FocusHwnd(cached);
+            return 0;
         }
     }
-    FindCtx ctx = {
-        .exe = matchExe, .cls = AutoClass(matchExe), .global = global};
+    FindCtx ctx = {.exe = matchExe, .cls = cls, .global = global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
-    if (ctx.found && !global) {
-        if (ctx.matchCount == 1)
-            StoreHwndCache(matchExe, ctx.found);
-        else
-            EvictHwndCache(matchExe);
-    }
+    if (ctx.found && !global)
+        StoreHwndCache(matchExe, ctx.found);
     FocusOrLaunch(&ctx, launchExe, admin);
     return 0;
 }

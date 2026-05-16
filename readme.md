@@ -17,7 +17,7 @@ helm app:msedge --global
 helm app:wt --admin
 ```
 
-Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin.
+Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin. `--all` is an alias/alternative to `--global`.
 
 Special aliases: `wt` and `windowsterminal` both resolve to `WindowsTerminal.exe`.
 
@@ -53,6 +53,15 @@ helm max
 Instantly maximizes the window, regardless if the window is snapped or not. On Windows, the default behavior when maximizing a snapped window using Windows + Up results in the window being snapped upwards, instead of maximized.
 
 This means it is not possible to send a window to the top left/right quarter of the screen using `helm max`.
+
+### Instant minimize
+
+```
+helm min
+```
+
+Instantly minimize the window.
+```
 
 ### Swap
 
@@ -97,6 +106,14 @@ Or using kanata's TCP output with kanata-bridge listening:
 ;; bridge strips prefix, sends L"firefox" to \\.\pipe\helm
 ```
 
+### URI Support
+
+```
+helm uri:ms-actioncenter:controlcenter/bluetooth
+```
+
+Launches the URI.
+
 ## Building
 
 Requires GCC (MinGW-w64). Run `build.ps1` from a PowerShell prompt:
@@ -119,7 +136,7 @@ Subsequent calls connect immediately - round-trip is under a millisecond on loca
 
 The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
 - **PID cache** - process list snapshot, TTL 300ms, binary-searched by PID
-- **HWND cache** - 16-slot LRU of exe → window handle, validated against `IsWindowVisible` and `DwmGetWindowAttribute(DWMWA_CLOAKED)` on hit
+- HWND cache - 16-slot LRU of exe → window handle; the topmost match is always cached, and on hit the entry is revalidated (window exists, visible, owned by the same exe, not cloaked) and confirmed still topmost in z-order, self-evicting if stale
 
 ## Weird Windows Behaviors
 

@@ -254,7 +254,6 @@ void MaybeRebuildPidCache(void);
 const wchar_t *GetExeFromPid(DWORD pid);
 HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls);
 void StoreHwndCache(const wchar_t *exe, HWND hwnd);
-void EvictHwndCache(const wchar_t *exe);
 void ForceRebuildPidCache(void);
 DWORD GetPidFromExe(const wchar_t *exe);
 
@@ -262,7 +261,7 @@ DWORD GetPidFromExe(const wchar_t *exe);
 void BypassForegroundLock(void);
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin);
 BOOL IsElevated(void);
-BOOL ShellExecAsUser(const wchar_t *file, const wchar_t *verb);
+BOOL ShellExecAsUser(const wchar_t *file);
 
 /* helm_vd.c */
 void InitVdInternal(void);

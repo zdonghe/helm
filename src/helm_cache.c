@@ -131,15 +131,6 @@ void StoreHwndCache(const wchar_t *exe, HWND hwnd) {
     HwndCache[slot].hwnd = hwnd;
 }
 
-void EvictHwndCache(const wchar_t *exe) {
-    for (int i = 0; i < HwndCacheCount; i++) {
-        if (lstrcmpiW(HwndCache[i].exe, exe) == 0) {
-            HwndCache[i] = HwndCache[--HwndCacheCount];
-            return;
-        }
-    }
-}
-
 DWORD GetPidFromExe(const wchar_t *exe) {
     for (int i = 0; i < PidCount; i++) {
         if (lstrcmpiW(PidCache[i].exe, exe) == 0)
