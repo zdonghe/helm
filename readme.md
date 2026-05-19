@@ -77,6 +77,14 @@ Swaps focused window with the adjacent snapped window in that direction. If no n
 exists, snaps focused window to the corresponding half of the work area instead - useful
 as a single binding that both snaps and swaps.
 
+### URI Support
+
+```
+helm uri:ms-actioncenter:controlcenter/bluetooth
+```
+
+Launches the URI.
+
 ## Kanata integration
 
 `kanata-bridge` connects to kanata's TCP socket and routes by prefix:
@@ -106,13 +114,6 @@ Or using kanata's TCP output with kanata-bridge listening:
 ;; bridge strips prefix, sends L"firefox" to \\.\pipe\helm
 ```
 
-### URI Support
-
-```
-helm uri:ms-actioncenter:controlcenter/bluetooth
-```
-
-Launches the URI.
 
 ## Building
 
