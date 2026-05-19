@@ -65,15 +65,21 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
         HWND h = HwndCache[i].hwnd;
         DWORD pid = 0;
         if (!h || !IsWindow(h) || !IsWindowVisible(h) ||
-            !GetWindowThreadProcessId(h, &pid))
+            !GetWindowThreadProcessId(h, &pid)) {
+            OutputDebugStringW(L"[helm] evict: invalid/hidden\n");
             goto evict;
+        }
         const wchar_t *owner = GetExeFromPid(pid);
-        if (!owner || lstrcmpiW(owner, exe) != 0)
+        if (!owner || lstrcmpiW(owner, exe) != 0) {
+            OutputDebugStringW(L"[helm] evict: owner-mismatch\n");
             goto evict;
+        }
         int cloaked = 0;
         DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
-        if (cloaked)
+        if (cloaked) {
+            OutputDebugStringW(L"[helm] evict: cloaked\n");
             goto evict;
+        }
 
         for (HWND w = GetWindow(h, GW_HWNDPREV); w;
              w = GetWindow(w, GW_HWNDPREV)) {
@@ -102,8 +108,10 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
             if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
                 !onCurrent)
                 continue;
+            OutputDebugStringW(L"[helm] evict: same-exe ABOVE in z-order\n");
             goto evict;
         }
+        OutputDebugStringW(L"[helm] cache-valid\n");
         return h;
 
     evict:
