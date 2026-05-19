@@ -46,6 +46,13 @@ static BOOL AcquireDaemonMutex(void) {
     return TRUE;
 }
 
+static HANDLE CreatePipeInstance(void) {
+    return CreateNamedPipeW(PIPE_NAME, PIPE_ACCESS_INBOUND,
+                            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE |
+                                PIPE_WAIT,
+                            PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, NULL);
+}
+
 static void RunServer(void) {
     if (!AcquireDaemonMutex())
         return;
@@ -54,65 +61,66 @@ static void RunServer(void) {
     CoCreateInstance(&CLSID_VDM, NULL, CLSCTX_ALL, &IID_IVDM, (void **)&Vdm);
     InitVdInternal();
 
-    BOOL readySignaled = FALSE;
-    while (1) {
-        HANDLE pipe = CreateNamedPipeW(
-            PIPE_NAME, PIPE_ACCESS_INBOUND,
-            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-            PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, NULL);
-        if (pipe == INVALID_HANDLE_VALUE) {
-            if (Vdm)
-                IVDM_Release(Vdm);
-            if (VdmInternal)
-                VdmInternal->lpVtbl->Release(VdmInternal);
-            CloseHandle(ready);
-            return;
-        }
-        if (!readySignaled) {
-            SetEvent(ready);
-            readySignaled = TRUE;
+    HANDLE pipe = CreatePipeInstance();
+    if (pipe != INVALID_HANDLE_VALUE)
+        SetEvent(ready);
+
+    while (pipe != INVALID_HANDLE_VALUE) {
+        if (!ConnectNamedPipe(pipe, NULL) &&
+            GetLastError() != ERROR_PIPE_CONNECTED) {
+            HANDLE next = CreatePipeInstance();
+            CloseHandle(pipe);
+            pipe = next;
+            continue;
         }
 
-        if (ConnectNamedPipe(pipe, NULL) ||
-            GetLastError() == ERROR_PIPE_CONNECTED) {
-            DWORD read;
-            wchar_t buf[1024];
-            if (ReadFile(pipe, buf, sizeof(buf) - 2, &read, NULL) && read > 0) {
-                read &= ~1u;
-                buf[read / sizeof(wchar_t)] = 0;
-                wchar_t cmd[1024] = {0};
-                BOOL global = FALSE;
-                BOOL admin = FALSE;
-                wchar_t *p = buf;
-                while (*p) {
-                    while (*p == L' ' || *p == L'\t')
-                        p++;
-                    if (!*p)
-                        break;
-                    wchar_t *start = p;
-                    while (*p && *p != L' ' && *p != L'\t')
-                        p++;
-                    wchar_t saved = *p;
-                    *p = 0;
-                    if (lstrcmpiW(start, L"--global") == 0 ||
-                        lstrcmpiW(start, L"--all") == 0)
-                        global = TRUE;
-                    else if (lstrcmpiW(start, L"--admin") == 0)
-                        admin = TRUE;
-                    else if (!cmd[0])
-                        StringCchCopyW(cmd, 1024, start);
-                    if (!saved)
-                        break;
-                    *p = saved;
-                    p++;
-                }
-                if (cmd[0])
-                    ProcessCommand(cmd, global, admin);
-            }
-            DisconnectNamedPipe(pipe);
-        }
+        DWORD read;
+        wchar_t buf[1024];
+        BOOL got =
+            ReadFile(pipe, buf, sizeof(buf) - 2, &read, NULL) && read > 0;
+        HANDLE next = CreatePipeInstance();
+        DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
+        pipe = next;
+        if (!got)
+            continue;
+        read &= ~1u;
+        buf[read / sizeof(wchar_t)] = 0;
+        wchar_t cmd[1024] = {0};
+        BOOL global = FALSE;
+        BOOL admin = FALSE;
+        wchar_t *p = buf;
+        while (*p) {
+            while (*p == L' ' || *p == L'\t')
+                p++;
+            if (!*p)
+                break;
+            wchar_t *start = p;
+            while (*p && *p != L' ' && *p != L'\t')
+                p++;
+            wchar_t saved = *p;
+            *p = 0;
+            if (lstrcmpiW(start, L"--global") == 0 ||
+                lstrcmpiW(start, L"--all") == 0)
+                global = TRUE;
+            else if (lstrcmpiW(start, L"--admin") == 0)
+                admin = TRUE;
+            else if (!cmd[0])
+                StringCchCopyW(cmd, 1024, start);
+            if (!saved)
+                break;
+            *p = saved;
+            p++;
+        }
+        if (cmd[0])
+            ProcessCommand(cmd, global, admin);
     }
+
+    if (Vdm)
+        IVDM_Release(Vdm);
+    if (VdmInternal)
+        VdmInternal->lpVtbl->Release(VdmInternal);
+    CloseHandle(ready);
 }
 
 static BOOL TrySendToPipe(const wchar_t *cmd) {
