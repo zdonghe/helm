@@ -46,16 +46,78 @@ static BOOL AcquireDaemonMutex(void) {
     return TRUE;
 }
 
+static SECURITY_ATTRIBUTES PipeSa = {0};
+static SECURITY_DESCRIPTOR PipeSdAbs = {0};
+
+static SECURITY_ATTRIBUTES *PipeSecurity(void) {
+    if (!IsElevated())
+        return NULL;
+    if (PipeSa.nLength)
+        return &PipeSa;
+
+    HANDLE token = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        Log(LOG_TRACE, L"PipeSecurity: OpenProcessToken failed gle=%lu",
+            GetLastError());
+        return NULL;
+    }
+    DWORD need = 0;
+    GetTokenInformation(token, TokenUser, NULL, 0, &need);
+    TOKEN_USER *tu = malloc(need);
+    if (!tu || !GetTokenInformation(token, TokenUser, tu, need, &need)) {
+        Log(LOG_TRACE, L"PipeSecurity: TokenUser query failed gle=%lu",
+            GetLastError());
+        CloseHandle(token);
+        free(tu);
+        return NULL;
+    }
+    CloseHandle(token);
+
+    DWORD userSidLen = GetLengthSid(tu->User.Sid);
+    DWORD daclSize =
+        sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD) + userSidLen;
+    PACL dacl = malloc(daclSize);
+    InitializeAcl(dacl, daclSize, ACL_REVISION);
+    AddAccessAllowedAce(dacl, ACL_REVISION, GENERIC_ALL, tu->User.Sid);
+    free(tu);
+
+    static SID mlSid;
+    SID_IDENTIFIER_AUTHORITY mlAuth = {SECURITY_MANDATORY_LABEL_AUTHORITY};
+    InitializeSid(&mlSid, &mlAuth, 1);
+    *GetSidSubAuthority(&mlSid, 0) = SECURITY_MANDATORY_MEDIUM_RID;
+    DWORD mlSidLen = GetLengthSid(&mlSid);
+    DWORD saclSize = sizeof(ACL) + sizeof(SYSTEM_MANDATORY_LABEL_ACE) -
+                     sizeof(DWORD) + mlSidLen;
+    PACL sacl = malloc(saclSize);
+    InitializeAcl(sacl, saclSize, ACL_REVISION);
+    AddMandatoryAce(sacl, ACL_REVISION, 0, SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
+                    &mlSid);
+
+    InitializeSecurityDescriptor(&PipeSdAbs, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(&PipeSdAbs, TRUE, dacl, FALSE);
+    SetSecurityDescriptorSacl(&PipeSdAbs, TRUE, sacl, FALSE);
+
+    PipeSa.nLength = sizeof(PipeSa);
+    PipeSa.lpSecurityDescriptor = &PipeSdAbs;
+    PipeSa.bInheritHandle = FALSE;
+    Log(LOG_TRACE, L"PipeSecurity: medium-IL pipe SD built");
+    return &PipeSa;
+}
+
 static HANDLE CreatePipeInstance(void) {
     return CreateNamedPipeW(PIPE_NAME, PIPE_ACCESS_INBOUND,
                             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE |
                                 PIPE_WAIT,
-                            PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, NULL);
+                            PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0,
+                            PipeSecurity());
 }
 
 static void RunServer(void) {
-    if (!AcquireDaemonMutex())
+    if (!AcquireDaemonMutex()) {
+        Log(LOG_TRACE, L"RunServer: another daemon owns the mutex");
         return;
+    }
+    Log(LOG_TRACE, L"RunServer: started, IsElevated=%d", IsElevated());
     HANDLE ready = CreateEventW(NULL, TRUE, FALSE, READY_EVENT_NAME);
 
     CoCreateInstance(&CLSID_VDM, NULL, CLSCTX_ALL, &IID_IVDM, (void **)&Vdm);
@@ -127,20 +189,30 @@ static BOOL TrySendToPipe(const wchar_t *cmd) {
     if (!WaitNamedPipeW(PIPE_NAME, 50))
         return FALSE;
     HANDLE pipe = INVALID_HANDLE_VALUE;
+    DWORD gle = 0;
     for (int i = 0; i < 3 && pipe == INVALID_HANDLE_VALUE; i++) {
         pipe = CreateFileW(PIPE_NAME, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0,
                            NULL);
         if (pipe == INVALID_HANDLE_VALUE) {
-            if (GetLastError() != ERROR_PIPE_BUSY)
+            gle = GetLastError();
+            if (gle != ERROR_PIPE_BUSY) {
+                Log(LOG_TRACE, L"TrySendToPipe: CreateFileW failed gle=%lu",
+                    gle);
                 return FALSE;
+            }
             WaitNamedPipeW(PIPE_NAME, 100);
         }
     }
-    if (pipe == INVALID_HANDLE_VALUE)
+    if (pipe == INVALID_HANDLE_VALUE) {
+        Log(LOG_TRACE, L"TrySendToPipe: gave up gle=%lu", gle);
         return FALSE;
+    }
     DWORD written;
     BOOL ok = WriteFile(pipe, cmd, (DWORD)(wcslen(cmd) * sizeof(wchar_t)),
                         &written, NULL);
+    if (!ok)
+        Log(LOG_TRACE, L"TrySendToPipe: WriteFile failed gle=%lu",
+            GetLastError());
     CloseHandle(pipe);
     return ok;
 }
@@ -212,6 +284,7 @@ int wmain(int argc, wchar_t *argv[]) {
         CoUninitialize();
         return 0;
     }
+    Log(LOG_TRACE, L"client: cmd=\"%s\"", cmdBuf);
     if (!cmdBuf[0]) {
         fwprintf(
             stderr,
