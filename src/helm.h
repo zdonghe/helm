@@ -6,13 +6,52 @@
 
 #include <dwmapi.h>
 #include <objbase.h>
-#include <pathcch.h>
 #include <shellapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strsafe.h>
 #include <tlhelp32.h>
 #include <wchar.h>
+
+/* ============================================================
+ * Logging
+ * ============================================================ */
+
+#ifndef countof
+#define countof(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
+enum { LOG_OFF = 0, LOG_PERF = 1, LOG_TRACE = 2 };
+
+#ifdef STRIP_LOGS
+#define InitLogging()
+#define InitQPC()
+#define StartMeasuring() (0LL)
+#define FinishMeasuring(start) (0.0)
+#define Log(level, fmt, ...)
+#else
+extern int LOG_LEVEL;
+
+void InitLogging(void);
+void InitQPCImpl(void);
+long long StartMeasuringImpl(void);
+double FinishMeasuringImpl(long long start);
+void LogCore(int level, const wchar_t *fmt, ...);
+
+#define InitQPC()                                                              \
+    do {                                                                       \
+        if (LOG_LEVEL >= LOG_PERF)                                             \
+            InitQPCImpl();                                                     \
+    } while (0)
+#define StartMeasuring() (LOG_LEVEL >= LOG_PERF ? StartMeasuringImpl() : 0LL)
+#define FinishMeasuring(start)                                                 \
+    (LOG_LEVEL >= LOG_PERF ? FinishMeasuringImpl(start) : 0.0)
+#define Log(level, fmt, ...)                                                   \
+    do {                                                                       \
+        if ((level) <= LOG_LEVEL)                                              \
+            LogCore((level), fmt, ##__VA_ARGS__);                              \
+    } while (0)
+#endif
 
 /* ============================================================
  * COM interfaces

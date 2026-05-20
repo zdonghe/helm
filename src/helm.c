@@ -205,6 +205,7 @@ int wmain(int argc, wchar_t *argv[]) {
             StringCchCatW(cmdBuf, 1024, L" ");
         StringCchCatW(cmdBuf, 1024, argv[i]);
     }
+    InitLogging();
     if (server) {
         CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         RunServer();

@@ -66,18 +66,18 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
         DWORD pid = 0;
         if (!h || !IsWindow(h) || !IsWindowVisible(h) ||
             !GetWindowThreadProcessId(h, &pid)) {
-            OutputDebugStringW(L"[helm] evict: invalid/hidden\n");
+            Log(LOG_TRACE, L"evict: invalid/hidden");
             goto evict;
         }
         const wchar_t *owner = GetExeFromPid(pid);
         if (!owner || lstrcmpiW(owner, exe) != 0) {
-            OutputDebugStringW(L"[helm] evict: owner-mismatch\n");
+            Log(LOG_TRACE, L"evict: owner-mismatch");
             goto evict;
         }
         int cloaked = 0;
         DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
         if (cloaked) {
-            OutputDebugStringW(L"[helm] evict: cloaked\n");
+            Log(LOG_TRACE, L"evict: cloaked");
             goto evict;
         }
 
@@ -108,10 +108,10 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
             if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
                 !onCurrent)
                 continue;
-            OutputDebugStringW(L"[helm] evict: same-exe ABOVE in z-order\n");
+            Log(LOG_TRACE, L"evict: same-exe ABOVE in z-order");
             goto evict;
         }
-        OutputDebugStringW(L"[helm] cache-valid\n");
+        Log(LOG_TRACE, L"cache-valid");
         return h;
 
     evict:

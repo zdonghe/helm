@@ -221,8 +221,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
         if (hProcess == INVALID_HANDLE_VALUE)
             return;
     } else if (!ShellExecAsUser(launchExe)) {
-        OutputDebugStringW(
-            L"[helm] ShellExecAsUser failed, launching elevated\n");
+        Log(LOG_TRACE, L"ShellExecAsUser failed, launching elevated");
         hProcess = ShellLaunch(launchExe, L"open");
         if (hProcess == INVALID_HANDLE_VALUE)
             return;
