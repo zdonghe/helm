@@ -195,7 +195,6 @@ struct IVDMI {
     const IVDMIVtbl *lpVtbl;
 };
 
-
 /* ============================================================
  * Shared globals  (defined in helm.c, extern everywhere else)
  * ============================================================ */

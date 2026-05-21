@@ -216,18 +216,12 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
 
     HANDLE hProcess = NULL;
 
-    if (admin || !IsElevated()) {
+    if (!admin && IsElevated() && ShellExecAsUser(launchExe)) {
+        AllowSetForegroundWindow(ASFW_ANY);
+    } else {
         hProcess = ShellLaunch(launchExe, admin ? L"runas" : L"open");
         if (hProcess == INVALID_HANDLE_VALUE)
             return;
-    } else if (!ShellExecAsUser(launchExe)) {
-        Log(LOG_TRACE, L"ShellExecAsUser failed, launching elevated");
-        hProcess = ShellLaunch(launchExe, L"open");
-        if (hProcess == INVALID_HANDLE_VALUE)
-            return;
-    } else {
-        AllowSetForegroundWindow(ASFW_ANY);
-        /* ShellExecAsUser path: no handle, hProcess stays NULL */
     }
 
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));

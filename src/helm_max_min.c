@@ -22,8 +22,6 @@ int ProcessMinCommand(void) {
     HWND fg = GetForegroundWindow();
     if (!fg)
         return 1;
-    if (IsIconic(fg))
-        ShowWindow(fg, SW_RESTORE);
     ShowWindow(fg, SW_MINIMIZE);
     return 0;
 }
