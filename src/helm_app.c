@@ -257,7 +257,6 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     long long t0 = StartMeasuring();
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
-    MaybeRebuildPidCache();
     const wchar_t *cls = AutoClass(matchExe);
     if (!global) {
         HWND cached = LookupHwndCache(matchExe, cls);
@@ -268,6 +267,7 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
             return 0;
         }
     }
+    MaybeRebuildPidCache();
     long long t1 = StartMeasuring();
     FindCtx ctx = {.exe = matchExe, .cls = cls, .global = global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
