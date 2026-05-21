@@ -160,6 +160,7 @@ static void FocusHwnd(HWND h) {
 }
 static DWORD WINAPI LaunchPollThread(LPVOID param) {
     LaunchPollCtx *lp = (LaunchPollCtx *)param;
+    long long t0 = StartMeasuring();
 
     /* Fast path: wait until the app's message pump is running, then scan
      * once. Covers most GUI apps (browsers, terminals, editors). */
@@ -171,10 +172,14 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
         FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
         EnumWindows(EnumProc, (LPARAM)&ctx);
         if (ctx.found) {
+            Log(LOG_PERF, L"launch %ls: fast-path %.0f ms", lp->exe,
+                FinishMeasuring(t0));
             FocusHwnd(ctx.found);
             free(lp);
             return 0;
         }
+        Log(LOG_PERF, L"launch %ls: fast-path miss %.0f ms, falling back",
+            lp->exe, FinishMeasuring(t0));
     }
 
     /* Fallback: console wrappers, Electron, or no process handle.
@@ -187,6 +192,8 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
         FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
         EnumWindows(EnumProc, (LPARAM)&ctx);
         if (ctx.found) {
+            Log(LOG_PERF, L"launch %ls: fallback iter %d %.0f ms", lp->exe,
+                i + 1, FinishMeasuring(t0));
             FocusHwnd(ctx.found);
             break;
         }
@@ -219,7 +226,10 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     if (!admin && IsElevated() && ShellExecAsUser(launchExe)) {
         AllowSetForegroundWindow(ASFW_ANY);
     } else {
+        long long tL = StartMeasuring();
         hProcess = ShellLaunch(launchExe, admin ? L"runas" : L"open");
+        Log(LOG_PERF, L"ShellLaunch %ls: %.2f ms", launchExe,
+            FinishMeasuring(tL));
         if (hProcess == INVALID_HANDLE_VALUE)
             return;
     }
@@ -244,6 +254,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
 }
 
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
+    long long t0 = StartMeasuring();
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     MaybeRebuildPidCache();
@@ -251,14 +262,20 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     if (!global) {
         HWND cached = LookupHwndCache(matchExe, cls);
         if (cached) {
+            Log(LOG_PERF, L"app %ls: hwnd-cache hit %.2f ms", matchExe,
+                FinishMeasuring(t0));
             FocusHwnd(cached);
             return 0;
         }
     }
+    long long t1 = StartMeasuring();
     FindCtx ctx = {.exe = matchExe, .cls = cls, .global = global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
+    Log(LOG_PERF, L"app %ls: EnumWindows %.2f ms found=%d", matchExe,
+        FinishMeasuring(t1), ctx.found != NULL);
     if (ctx.found && !global)
         StoreHwndCache(matchExe, ctx.found);
     FocusOrLaunch(&ctx, launchExe, admin);
+    Log(LOG_PERF, L"app %ls: total %.2f ms", matchExe, FinishMeasuring(t0));
     return 0;
 }

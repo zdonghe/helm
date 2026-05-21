@@ -18,6 +18,7 @@ static int CmpPid(const void *a, const void *b) {
 }
 
 static void BuildPidCache(void) {
+    long long t0 = StartMeasuring();
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE)
         return;
@@ -33,6 +34,7 @@ static void BuildPidCache(void) {
     }
     CloseHandle(snap);
     qsort(PidCache, PidCount, sizeof(PidEntry), CmpPid);
+    Log(LOG_PERF, L"pid-cache: %d procs %.2f ms", PidCount, FinishMeasuring(t0));
 }
 
 void MaybeRebuildPidCache(void) {
@@ -81,6 +83,7 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
             goto evict;
         }
 
+        long long tZ = StartMeasuring();
         for (HWND w = GetWindow(h, GW_HWNDPREV); w;
              w = GetWindow(w, GW_HWNDPREV)) {
             if (!IsWindowVisible(w))
@@ -108,9 +111,11 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
             if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
                 !onCurrent)
                 continue;
+            Log(LOG_PERF, L"z-order walk: %.2f ms (evict)", FinishMeasuring(tZ));
             Log(LOG_TRACE, L"evict: same-exe ABOVE in z-order");
             goto evict;
         }
+        Log(LOG_PERF, L"z-order walk: %.2f ms", FinishMeasuring(tZ));
         Log(LOG_TRACE, L"cache-valid");
         return h;
 

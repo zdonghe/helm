@@ -146,6 +146,7 @@ static void RunServer(void) {
         pipe = next;
         if (!got)
             continue;
+        long long t0 = StartMeasuring();
         read &= ~1u;
         buf[read / sizeof(wchar_t)] = 0;
         wchar_t cmd[1024] = {0};
@@ -174,8 +175,11 @@ static void RunServer(void) {
             *p = saved;
             p++;
         }
-        if (cmd[0])
+        if (cmd[0]) {
             ProcessCommand(cmd, global, admin);
+            Log(LOG_PERF, L"cmd \"%ls\": pipe→done %.2f ms", cmd,
+                FinishMeasuring(t0));
+        }
     }
 
     if (Vdm)
