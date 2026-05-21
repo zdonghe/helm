@@ -20,26 +20,34 @@ BOOL IsElevated(void) {
 static HANDLE ShellExecAsUser(const wchar_t *file) {
     MaybeRebuildPidCache();
     DWORD explorerPid = GetPidFromExe(L"explorer.exe");
-    if (!explorerPid)
+    if (!explorerPid) {
+        Log(LOG_PERF, L"ShellExecAsUser: explorer.exe not in pid cache");
         return INVALID_HANDLE_VALUE;
+    }
 
     /* Open explorer and duplicate its (medium integrity) token */
     HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, explorerPid);
-    if (!hProc)
+    if (!hProc) {
+        Log(LOG_PERF, L"ShellExecAsUser: OpenProcess failed err=%lu", GetLastError());
         return INVALID_HANDLE_VALUE;
+    }
 
     HANDLE hToken = NULL;
     BOOL ok = OpenProcessToken(hProc, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken);
     CloseHandle(hProc);
-    if (!ok)
+    if (!ok) {
+        Log(LOG_PERF, L"ShellExecAsUser: OpenProcessToken failed err=%lu", GetLastError());
         return INVALID_HANDLE_VALUE;
+    }
 
     HANDLE hDup = NULL;
     ok = DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation,
                           TokenPrimary, &hDup);
     CloseHandle(hToken);
-    if (!ok)
+    if (!ok) {
+        Log(LOG_PERF, L"ShellExecAsUser: DuplicateTokenEx failed err=%lu", GetLastError());
         return INVALID_HANDLE_VALUE;
+    }
 
     /* Launch file with explorer's token — inherits medium integrity */
     wchar_t cmd[MAX_PATH + 4];
@@ -51,8 +59,10 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
     ok = CreateProcessWithTokenW(hDup, LOGON_WITH_PROFILE, NULL, cmd, 0, NULL,
                                  NULL, &si, &pi);
     CloseHandle(hDup);
-    if (!ok)
+    if (!ok) {
+        Log(LOG_PERF, L"ShellExecAsUser: CreateProcessWithTokenW failed err=%lu", GetLastError());
         return INVALID_HANDLE_VALUE;
+    }
     CloseHandle(pi.hThread);
     return pi.hProcess;
 }
@@ -223,7 +233,10 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     HANDLE hProcess = INVALID_HANDLE_VALUE;
 
     if (!admin && IsElevated()) {
+        long long tE = StartMeasuring();
         hProcess = ShellExecAsUser(launchExe);
+        Log(LOG_PERF, L"ShellExecAsUser %ls: %.2f ms", launchExe,
+            FinishMeasuring(tE));
         if (hProcess != INVALID_HANDLE_VALUE)
             AllowSetForegroundWindow(GetProcessId(hProcess));
     }
