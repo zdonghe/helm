@@ -260,7 +260,6 @@ DWORD GetPidFromExe(const wchar_t *exe);
 void BypassForegroundLock(void);
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin);
 BOOL IsElevated(void);
-BOOL ShellExecAsUser(const wchar_t *file);
 
 /* helm_vd.c */
 void InitVdInternal(void);
