@@ -86,6 +86,7 @@ struct IVDM {
 #define IVDM_IsCurrent(p, h, out)                                              \
     (p)->lpVtbl->IsWindowOnCurrentVirtualDesktop(p, h, out)
 #define IVDM_Release(p) (p)->lpVtbl->Release(p)
+#define IVDMI_Release(p) (p)->lpVtbl->Release(p)
 
 /* --- IServiceProvider --- */
 static const IID IID_ISvcProv = {
@@ -194,46 +195,6 @@ struct IVDMI {
     const IVDMIVtbl *lpVtbl;
 };
 
-/* --- Shell automation (de-elevated launch) --- */
-
-static const CLSID CLSID_ShellWindows = {
-    0x9BA05972,
-    0xF6A8,
-    0x11CF,
-    {0xA4, 0x42, 0x00, 0xA0, 0xC9, 0x0A, 0x8F, 0x39}};
-static const IID IID_IShellWindows = {
-    0x85CB6900,
-    0x4D95,
-    0x11CF,
-    {0x96, 0x0C, 0x00, 0x80, 0xC7, 0xF4, 0xEE, 0x85}};
-static const GUID SID_STopLevelBrowser = {
-    0x4C96BE40,
-    0x915C,
-    0x11CF,
-    {0x99, 0xD3, 0x00, 0xAA, 0x00, 0x4A, 0xE8, 0x37}};
-static const IID IID_IShellBrowser = {
-    0x000214E2,
-    0x0000,
-    0x0000,
-    {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
-static const IID IID_IShellFolderViewDual = {
-    0xE7A1AF80,
-    0x4D96,
-    0x11CF,
-    {0x96, 0x0C, 0x00, 0x80, 0xC7, 0xF4, 0xEE, 0x85}};
-static const IID IID_IShellDispatch2 = {
-    0xA4C6892C,
-    0x3BA9,
-    0x11D2,
-    {0x9D, 0xEA, 0x00, 0xC0, 0x4F, 0xB1, 0x61, 0x62}};
-
-/* --- COM vtable helpers --- */
-
-#define VTSLOT(obj, n) (((void **)(*(void **)(obj)))[n])
-#define COM_REL(obj) ((ULONG(STDMETHODCALLTYPE *)(void *))(VTSLOT(obj, 2)))(obj)
-#define COM_QI(obj, iid, out)                                                  \
-    ((HRESULT(STDMETHODCALLTYPE *)(void *, REFIID, void **))(VTSLOT(obj, 0)))( \
-        obj, iid, out)
 
 /* ============================================================
  * Shared globals  (defined in helm.c, extern everywhere else)

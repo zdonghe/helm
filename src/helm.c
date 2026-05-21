@@ -181,7 +181,7 @@ static void RunServer(void) {
     if (Vdm)
         IVDM_Release(Vdm);
     if (VdmInternal)
-        VdmInternal->lpVtbl->Release(VdmInternal);
+        IVDMI_Release(VdmInternal);
     CloseHandle(ready);
 }
 
