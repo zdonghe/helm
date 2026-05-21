@@ -9,6 +9,7 @@
 #include <shellapi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pathcch.h>
 #include <strsafe.h>
 #include <tlhelp32.h>
 #include <wchar.h>
@@ -260,7 +261,6 @@ DWORD GetPidFromExe(const wchar_t *exe);
 void BypassForegroundLock(void);
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin);
 BOOL IsElevated(void);
-BOOL ShellExecAsUser(const wchar_t *file);
 
 /* helm_vd.c */
 void InitVdInternal(void);

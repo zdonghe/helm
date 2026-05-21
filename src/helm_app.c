@@ -17,29 +17,29 @@ BOOL IsElevated(void) {
     return elevated;
 }
 
-BOOL ShellExecAsUser(const wchar_t *file) {
+static HANDLE ShellExecAsUser(const wchar_t *file) {
     MaybeRebuildPidCache();
     DWORD explorerPid = GetPidFromExe(L"explorer.exe");
     if (!explorerPid)
-        return FALSE;
+        return INVALID_HANDLE_VALUE;
 
     /* Open explorer and duplicate its (medium integrity) token */
     HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, explorerPid);
     if (!hProc)
-        return FALSE;
+        return INVALID_HANDLE_VALUE;
 
     HANDLE hToken = NULL;
     BOOL ok = OpenProcessToken(hProc, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken);
     CloseHandle(hProc);
     if (!ok)
-        return FALSE;
+        return INVALID_HANDLE_VALUE;
 
     HANDLE hDup = NULL;
     ok = DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation,
                           TokenPrimary, &hDup);
     CloseHandle(hToken);
     if (!ok)
-        return FALSE;
+        return INVALID_HANDLE_VALUE;
 
     /* Launch file with explorer's token — inherits medium integrity */
     wchar_t cmd[MAX_PATH + 4];
@@ -51,12 +51,12 @@ BOOL ShellExecAsUser(const wchar_t *file) {
     ok = CreateProcessWithTokenW(hDup, LOGON_WITH_PROFILE, NULL, cmd, 0, NULL,
                                  NULL, &si, &pi);
     CloseHandle(hDup);
-    if (ok) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-    }
-    return ok;
+    if (!ok)
+        return INVALID_HANDLE_VALUE;
+    CloseHandle(pi.hThread);
+    return pi.hProcess;
 }
+
 static void ResolveTarget(const wchar_t *in, wchar_t *matchExe,
                           wchar_t *launchExe, size_t sz) {
     const wchar_t *lastBs = wcsrchr(in, L'\\');
@@ -215,24 +215,96 @@ static HANDLE ShellLaunch(const wchar_t *exe, const wchar_t *verb) {
     return sei.hProcess;
 }
 
+/* Resolve a bare exe name (e.g. "msedge.exe") to its full path via the
+ * App Paths registry key.  Checks HKCU before HKLM so per-user installs
+ * win.  Returns TRUE and fills fullPath on success. */
+static BOOL LookupAppPath(const wchar_t *exe, wchar_t *fullPath, DWORD cb) {
+    wchar_t regKey[MAX_PATH + 64];
+    StringCchPrintfW(regKey, countof(regKey),
+                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
+                     L"\\App Paths\\%s",
+                     exe);
+    DWORD flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
+    DWORD sz = cb;
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, regKey, NULL, flags, NULL,
+                              fullPath, &sz);
+    if (st != ERROR_SUCCESS) {
+        sz = cb;
+        st = RegGetValueW(HKEY_LOCAL_MACHINE, regKey, NULL, flags, NULL,
+                          fullPath, &sz);
+    }
+    return st == ERROR_SUCCESS && fullPath[0];
+}
+
+static HANDLE DirectLaunch(const wchar_t *exe) {
+    STARTUPINFOW si = {.cb = sizeof(si),
+                       .dwFlags = STARTF_USESHOWWINDOW,
+                       .wShowWindow = SW_SHOWNORMAL};
+    PROCESS_INFORMATION pi = {0};
+    wchar_t cmdLine[MAX_PATH + 2];
+
+    StringCchPrintfW(cmdLine, countof(cmdLine), L"\"%s\"", exe);
+    if (!CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si,
+                        &pi)) {
+        if (GetLastError() == ERROR_ELEVATION_REQUIRED)
+            return ShellLaunch(exe, L"open");
+
+        /* Slow path: App Paths registry (msedge, chrome, etc.). */
+        wchar_t fullPath[MAX_PATH] = {0};
+        if (!LookupAppPath(exe, fullPath, sizeof(fullPath)))
+            return INVALID_HANDLE_VALUE;
+
+        wchar_t workDir[MAX_PATH];
+        StringCchCopyW(workDir, MAX_PATH, fullPath);
+        PathCchRemoveFileSpec(workDir, MAX_PATH);
+
+        StringCchPrintfW(cmdLine, countof(cmdLine), L"\"%s\"", fullPath);
+        if (!CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, workDir,
+                            &si, &pi)) {
+            if (GetLastError() == ERROR_ELEVATION_REQUIRED)
+                return ShellLaunch(fullPath, L"open");
+            return INVALID_HANDLE_VALUE;
+        }
+    }
+
+    AllowSetForegroundWindow(pi.dwProcessId);
+    CloseHandle(pi.hThread);
+    return pi.hProcess;
+}
+
 static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     if (ctx->found) {
         FocusHwnd(ctx->found);
         return;
     }
 
-    HANDLE hProcess = NULL;
+    long long tL = StartMeasuring();
+    HANDLE hProcess;
 
-    if (!admin && IsElevated() && ShellExecAsUser(launchExe)) {
-        AllowSetForegroundWindow(ASFW_ANY);
+    if (admin) {
+        hProcess = ShellLaunch(launchExe, L"runas");
+    } else if (IsElevated()) {
+        /* Try to de-elevate: launch with explorer's medium-IL token.
+         * Resolve via App Paths first so ShellExecAsUser gets a full path —
+         * CreateProcessWithTokenW does not search App Paths, only PATH. */
+        wchar_t fullPath[MAX_PATH] = {0};
+        const wchar_t *target = LookupAppPath(launchExe, fullPath, sizeof(fullPath))
+                                    ? fullPath : launchExe;
+        hProcess = ShellExecAsUser(target);
+        if (hProcess != INVALID_HANDLE_VALUE) {
+            AllowSetForegroundWindow(GetProcessId(hProcess));
+        } else {
+            /* ShellExecAsUser failed (e.g. explorer token unavailable) —
+             * fall back to shell open, which also spawns non-elevated. */
+            hProcess = ShellLaunch(launchExe, L"open");
+        }
     } else {
-        long long tL = StartMeasuring();
-        hProcess = ShellLaunch(launchExe, admin ? L"runas" : L"open");
-        Log(LOG_PERF, L"ShellLaunch %ls: %.2f ms", launchExe,
-            FinishMeasuring(tL));
-        if (hProcess == INVALID_HANDLE_VALUE)
-            return;
+        hProcess = DirectLaunch(launchExe);
     }
+
+    Log(LOG_PERF, L"launch %ls: %.2f ms", launchExe, FinishMeasuring(tL));
+    if (hProcess == INVALID_HANDLE_VALUE)
+        return;
 
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));
     if (!lp) {

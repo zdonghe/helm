@@ -8,8 +8,8 @@
 int ProcessUriCommand(const wchar_t *arg) {
     if (!arg || !arg[0])
         return 1;
-    if (IsElevated() && ShellExecAsUser(arg))
-        return 0;
+    /* CreateProcessWithTokenW cannot dispatch URI schemes — always use
+     * ShellExecuteW. Inherits helm's elevation level when elevated. */
     ShellExecuteW(NULL, L"open", arg, NULL, NULL, SW_SHOWNORMAL);
     return 0;
 }
