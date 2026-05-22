@@ -18,8 +18,8 @@ BOOL IsElevated(void) {
 }
 
 static HANDLE ShellExecAsUser(const wchar_t *file) {
-    MaybeRebuildPidCache();
-    DWORD explorerPid = GetPidFromExe(L"explorer.exe");
+    /* Caller must have called MaybeRebuildPidCache(); */
+    DWORD explorerPid = GetExplorerPid();
     if (!explorerPid) {
         Log(LOG_PERF, L"ShellExecAsUser: explorer.exe not in pid cache");
         return INVALID_HANDLE_VALUE;
@@ -59,8 +59,7 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
                        .dwFlags = STARTF_USESHOWWINDOW,
                        .wShowWindow = SW_SHOWNORMAL};
     PROCESS_INFORMATION pi = {0};
-    ok = CreateProcessWithTokenW(hDup, LOGON_WITH_PROFILE, NULL, cmd, 0, NULL,
-                                 NULL, &si, &pi);
+    ok = CreateProcessWithTokenW(hDup, 0, NULL, cmd, 0, NULL, NULL, &si, &pi);
     CloseHandle(hDup);
     if (!ok) {
         Log(LOG_PERF,
@@ -298,8 +297,9 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
         hProcess = ShellLaunch(launchExe, L"runas");
     } else if (IsElevated()) {
         wchar_t fullPath[MAX_PATH] = {0};
-        const wchar_t *target = LookupAppPath(launchExe, fullPath, sizeof(fullPath))
-                                    ? fullPath : launchExe;
+        const wchar_t *target =
+            LookupAppPath(launchExe, fullPath, sizeof(fullPath)) ? fullPath
+                                                                 : launchExe;
         hProcess = ShellExecAsUser(target);
         if (hProcess != INVALID_HANDLE_VALUE)
             AllowSetForegroundWindow(GetProcessId(hProcess));

@@ -3,6 +3,7 @@
 static PidEntry PidCache[MAX_PIDS];
 static int PidCount = 0;
 static ULONGLONG PidCacheExpiry = 0;
+static DWORD ExplorerPid = 0;
 
 static struct {
     wchar_t exe[EXE_NAME_MAX];
@@ -19,6 +20,8 @@ static int CmpPid(const void *a, const void *b) {
 
 static void BuildPidCache(void) {
     long long t0 = StartMeasuring();
+    PidCount = 0;
+    ExplorerPid = 0;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE)
         return;
@@ -29,6 +32,9 @@ static void BuildPidCache(void) {
                 break;
             PidCache[PidCount].pid = pe.th32ProcessID;
             StringCchCopyW(PidCache[PidCount].exe, EXE_NAME_MAX, pe.szExeFile);
+            if (!ExplorerPid &&
+                lstrcmpiW(pe.szExeFile, L"explorer.exe") == 0)
+                ExplorerPid = pe.th32ProcessID;
             PidCount++;
         } while (Process32NextW(snap, &pe));
     }
@@ -37,11 +43,12 @@ static void BuildPidCache(void) {
     Log(LOG_PERF, L"pid-cache: %d procs %.2f ms", PidCount, FinishMeasuring(t0));
 }
 
+DWORD GetExplorerPid(void) { return ExplorerPid; }
+
 void MaybeRebuildPidCache(void) {
     ULONGLONG now = GetTickCount64();
     if (now < PidCacheExpiry)
         return;
-    PidCount = 0;
     BuildPidCache();
     PidCacheExpiry = now + PIDCACHE_TTL_MS;
 }
@@ -144,10 +151,3 @@ void StoreHwndCache(const wchar_t *exe, HWND hwnd) {
     HwndCache[slot].hwnd = hwnd;
 }
 
-DWORD GetPidFromExe(const wchar_t *exe) {
-    for (int i = 0; i < PidCount; i++) {
-        if (lstrcmpiW(PidCache[i].exe, exe) == 0)
-            return PidCache[i].pid;
-    }
-    return 0;
-}

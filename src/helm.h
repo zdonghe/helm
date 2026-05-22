@@ -254,7 +254,7 @@ const wchar_t *GetExeFromPid(DWORD pid);
 HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls);
 void StoreHwndCache(const wchar_t *exe, HWND hwnd);
 void ForceRebuildPidCache(void);
-DWORD GetPidFromExe(const wchar_t *exe);
+DWORD GetExplorerPid(void);
 
 /* helm_app.c */
 void BypassForegroundLock(void);
