@@ -28,7 +28,8 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
     /* Open explorer and duplicate its (medium integrity) token */
     HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, explorerPid);
     if (!hProc) {
-        Log(LOG_PERF, L"ShellExecAsUser: OpenProcess failed err=%lu", GetLastError());
+        Log(LOG_PERF, L"ShellExecAsUser: OpenProcess failed err=%lu",
+            GetLastError());
         return INVALID_HANDLE_VALUE;
     }
 
@@ -36,7 +37,8 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
     BOOL ok = OpenProcessToken(hProc, TOKEN_DUPLICATE | TOKEN_QUERY, &hToken);
     CloseHandle(hProc);
     if (!ok) {
-        Log(LOG_PERF, L"ShellExecAsUser: OpenProcessToken failed err=%lu", GetLastError());
+        Log(LOG_PERF, L"ShellExecAsUser: OpenProcessToken failed err=%lu",
+            GetLastError());
         return INVALID_HANDLE_VALUE;
     }
 
@@ -45,7 +47,8 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
                           TokenPrimary, &hDup);
     CloseHandle(hToken);
     if (!ok) {
-        Log(LOG_PERF, L"ShellExecAsUser: DuplicateTokenEx failed err=%lu", GetLastError());
+        Log(LOG_PERF, L"ShellExecAsUser: DuplicateTokenEx failed err=%lu",
+            GetLastError());
         return INVALID_HANDLE_VALUE;
     }
 
@@ -60,12 +63,33 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
                                  NULL, &si, &pi);
     CloseHandle(hDup);
     if (!ok) {
-        Log(LOG_PERF, L"ShellExecAsUser: CreateProcessWithTokenW failed err=%lu", GetLastError());
+        Log(LOG_PERF,
+            L"ShellExecAsUser: CreateProcessWithTokenW failed err=%lu",
+            GetLastError());
         return INVALID_HANDLE_VALUE;
     }
     CloseHandle(pi.hThread);
     return pi.hProcess;
 }
+
+static BOOL LookupAppPath(const wchar_t *exe, wchar_t *fullPath, DWORD cb) {
+    wchar_t regKey[MAX_PATH + 64];
+    StringCchPrintfW(regKey, countof(regKey),
+                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
+                     L"\\App Paths\\%s",
+                     exe);
+    DWORD flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
+    DWORD sz = cb;
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, regKey, NULL, flags, NULL,
+                              fullPath, &sz);
+    if (st != ERROR_SUCCESS) {
+        sz = cb;
+        st = RegGetValueW(HKEY_LOCAL_MACHINE, regKey, NULL, flags, NULL,
+                          fullPath, &sz);
+    }
+    return st == ERROR_SUCCESS && fullPath[0];
+}
+
 static void ResolveTarget(const wchar_t *in, wchar_t *matchExe,
                           wchar_t *launchExe, size_t sz) {
     const wchar_t *lastBs = wcsrchr(in, L'\\');
@@ -233,8 +257,14 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     HANDLE hProcess = INVALID_HANDLE_VALUE;
 
     if (!admin && IsElevated()) {
+        wchar_t fullPath[MAX_PATH] = {0};
+        BOOL hasSep =
+            wcschr(launchExe, L'\\') != NULL || wcschr(launchExe, L'/') != NULL;
+        const wchar_t *target = launchExe;
+        if (!hasSep && LookupAppPath(launchExe, fullPath, sizeof(fullPath)))
+            target = fullPath;
         long long tE = StartMeasuring();
-        hProcess = ShellExecAsUser(launchExe);
+        hProcess = ShellExecAsUser(target);
         Log(LOG_PERF, L"ShellExecAsUser %ls: %.2f ms", launchExe,
             FinishMeasuring(tE));
         if (hProcess != INVALID_HANDLE_VALUE)
