@@ -72,24 +72,6 @@ static HANDLE ShellExecAsUser(const wchar_t *file) {
     return pi.hProcess;
 }
 
-static BOOL LookupAppPath(const wchar_t *exe, wchar_t *fullPath, DWORD cb) {
-    wchar_t regKey[MAX_PATH + 64];
-    StringCchPrintfW(regKey, countof(regKey),
-                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
-                     L"\\App Paths\\%s",
-                     exe);
-    DWORD flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
-    DWORD sz = cb;
-    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, regKey, NULL, flags, NULL,
-                              fullPath, &sz);
-    if (st != ERROR_SUCCESS) {
-        sz = cb;
-        st = RegGetValueW(HKEY_LOCAL_MACHINE, regKey, NULL, flags, NULL,
-                          fullPath, &sz);
-    }
-    return st == ERROR_SUCCESS && fullPath[0];
-}
-
 static void ResolveTarget(const wchar_t *in, wchar_t *matchExe,
                           wchar_t *launchExe, size_t sz) {
     const wchar_t *lastBs = wcsrchr(in, L'\\');
@@ -248,36 +230,88 @@ static HANDLE ShellLaunch(const wchar_t *exe, const wchar_t *verb) {
     return sei.hProcess;
 }
 
+static BOOL LookupAppPath(const wchar_t *exe, wchar_t *fullPath, DWORD cb) {
+    wchar_t regKey[MAX_PATH + 64];
+    StringCchPrintfW(regKey, countof(regKey),
+                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
+                     L"\\App Paths\\%s",
+                     exe);
+    DWORD flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
+    DWORD sz = cb;
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, regKey, NULL, flags, NULL,
+                              fullPath, &sz);
+    if (st != ERROR_SUCCESS) {
+        sz = cb;
+        st = RegGetValueW(HKEY_LOCAL_MACHINE, regKey, NULL, flags, NULL,
+                          fullPath, &sz);
+    }
+    return st == ERROR_SUCCESS && fullPath[0];
+}
+
+static HANDLE DirectLaunch(const wchar_t *exe) {
+    STARTUPINFOW si = {.cb = sizeof(si),
+                       .dwFlags = STARTF_USESHOWWINDOW,
+                       .wShowWindow = SW_SHOWNORMAL};
+    PROCESS_INFORMATION pi = {0};
+    wchar_t cmdLine[MAX_PATH + 2];
+
+    StringCchPrintfW(cmdLine, countof(cmdLine), L"\"%s\"", exe);
+    if (!CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si,
+                        &pi)) {
+        if (GetLastError() == ERROR_ELEVATION_REQUIRED)
+            return ShellLaunch(exe, L"open");
+
+        wchar_t fullPath[MAX_PATH] = {0};
+        if (!LookupAppPath(exe, fullPath, sizeof(fullPath)))
+            return INVALID_HANDLE_VALUE;
+
+        wchar_t workDir[MAX_PATH];
+        StringCchCopyW(workDir, MAX_PATH, fullPath);
+        wchar_t *slash = wcsrchr(workDir, L'\\');
+        if (slash)
+            *slash = L'\0';
+
+        StringCchPrintfW(cmdLine, countof(cmdLine), L"\"%s\"", fullPath);
+        if (!CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, workDir,
+                            &si, &pi)) {
+            if (GetLastError() == ERROR_ELEVATION_REQUIRED)
+                return ShellLaunch(fullPath, L"open");
+            return INVALID_HANDLE_VALUE;
+        }
+    }
+
+    AllowSetForegroundWindow(pi.dwProcessId);
+    CloseHandle(pi.hThread);
+    return pi.hProcess;
+}
+
 static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     if (ctx->found) {
         FocusHwnd(ctx->found);
         return;
     }
 
-    HANDLE hProcess = INVALID_HANDLE_VALUE;
+    long long tL = StartMeasuring();
+    HANDLE hProcess;
 
-    if (!admin && IsElevated()) {
+    if (admin) {
+        hProcess = ShellLaunch(launchExe, L"runas");
+    } else if (IsElevated()) {
         wchar_t fullPath[MAX_PATH] = {0};
-        BOOL hasSep =
-            wcschr(launchExe, L'\\') != NULL || wcschr(launchExe, L'/') != NULL;
-        const wchar_t *target = launchExe;
-        if (!hasSep && LookupAppPath(launchExe, fullPath, sizeof(fullPath)))
-            target = fullPath;
-        long long tE = StartMeasuring();
+        const wchar_t *target = LookupAppPath(launchExe, fullPath, sizeof(fullPath))
+                                    ? fullPath : launchExe;
         hProcess = ShellExecAsUser(target);
-        Log(LOG_PERF, L"ShellExecAsUser %ls: %.2f ms", launchExe,
-            FinishMeasuring(tE));
         if (hProcess != INVALID_HANDLE_VALUE)
             AllowSetForegroundWindow(GetProcessId(hProcess));
+        else
+            hProcess = ShellLaunch(launchExe, L"open");
+    } else {
+        hProcess = DirectLaunch(launchExe);
     }
-    if (hProcess == INVALID_HANDLE_VALUE) {
-        long long tL = StartMeasuring();
-        hProcess = ShellLaunch(launchExe, admin ? L"runas" : L"open");
-        Log(LOG_PERF, L"ShellLaunch %ls: %.2f ms", launchExe,
-            FinishMeasuring(tL));
-        if (hProcess == INVALID_HANDLE_VALUE)
-            return;
-    }
+
+    Log(LOG_PERF, L"launch %ls: %.2f ms", launchExe, FinishMeasuring(tL));
+    if (hProcess == INVALID_HANDLE_VALUE)
+        return;
 
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));
     if (!lp) {
