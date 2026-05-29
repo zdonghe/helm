@@ -1,5 +1,11 @@
 #include "helm.h"
 
+#include <winternl.h>
+
+#ifndef STATUS_INFO_LENGTH_MISMATCH
+#define STATUS_INFO_LENGTH_MISMATCH ((NTSTATUS)0xC0000004L)
+#endif
+
 static PidEntry PidCache[MAX_PIDS];
 static int PidCount = 0;
 static ULONGLONG PidCacheExpiry = 0;
@@ -18,44 +24,87 @@ static int CmpPid(const void *a, const void *b) {
     return (pa > pb) - (pa < pb);
 }
 
+static SRWLOCK PidLock = SRWLOCK_INIT;
+static void *PidScratch = NULL;
+static ULONG PidScratchCap = 0;
+
 static void BuildPidCache(void) {
     long long t0 = StartMeasuring();
     PidCount = 0;
     ExplorerPid = 0;
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE)
-        return;
-    PROCESSENTRY32W pe = {.dwSize = sizeof(pe)};
-    if (Process32FirstW(snap, &pe)) {
-        do {
-            if (PidCount >= MAX_PIDS)
-                break;
-            PidCache[PidCount].pid = pe.th32ProcessID;
-            StringCchCopyW(PidCache[PidCount].exe, EXE_NAME_MAX, pe.szExeFile);
-            if (!ExplorerPid &&
-                lstrcmpiW(pe.szExeFile, L"explorer.exe") == 0)
-                ExplorerPid = pe.th32ProcessID;
-            PidCount++;
-        } while (Process32NextW(snap, &pe));
+
+    if (!PidScratch) {
+        PidScratchCap = 384 * 1024;
+        PidScratch = malloc(PidScratchCap);
+        if (!PidScratch)
+            return;
     }
-    CloseHandle(snap);
+    ULONG need = 0;
+    NTSTATUS st;
+    for (;;) {
+        st = NtQuerySystemInformation(SystemProcessInformation, PidScratch,
+                                      PidScratchCap, &need);
+        if (st != STATUS_INFO_LENGTH_MISMATCH)
+            break;
+        ULONG newcap = need + 64 * 1024;
+        void *nb = realloc(PidScratch, newcap);
+        if (!nb)
+            return;
+        PidScratch = nb;
+        PidScratchCap = newcap;
+    }
+    if (st < 0)
+        return;
+
+    BYTE *p = (BYTE *)PidScratch;
+    for (;;) {
+        SYSTEM_PROCESS_INFORMATION *spi = (SYSTEM_PROCESS_INFORMATION *)p;
+        if (PidCount < MAX_PIDS) {
+            DWORD pid = (DWORD)(ULONG_PTR)spi->UniqueProcessId;
+            wchar_t *name = spi->ImageName.Buffer;
+            USHORT n = spi->ImageName.Length / sizeof(wchar_t);
+            PidCache[PidCount].pid = pid;
+            if (name && n) {
+                if (n >= EXE_NAME_MAX)
+                    n = EXE_NAME_MAX - 1;
+                memcpy(PidCache[PidCount].exe, name, n * sizeof(wchar_t));
+                PidCache[PidCount].exe[n] = L'\0';
+                if (!ExplorerPid &&
+                    lstrcmpiW(PidCache[PidCount].exe, L"explorer.exe") == 0)
+                    ExplorerPid = pid;
+            } else {
+                /* System Idle Process has a NULL ImageName.Buffer. */
+                PidCache[PidCount].exe[0] = L'\0';
+            }
+            PidCount++;
+        }
+        if (!spi->NextEntryOffset)
+            break;
+        p += spi->NextEntryOffset;
+    }
     qsort(PidCache, PidCount, sizeof(PidEntry), CmpPid);
-    Log(LOG_PERF, L"pid-cache: %d procs %.2f ms", PidCount, FinishMeasuring(t0));
+    Log(LOG_PERF, L"pid-cache: %d procs %.2f ms", PidCount,
+        FinishMeasuring(t0));
 }
 
 DWORD GetExplorerPid(void) { return ExplorerPid; }
 
 void MaybeRebuildPidCache(void) {
-    ULONGLONG now = GetTickCount64();
-    if (now < PidCacheExpiry)
+    if (GetTickCount64() < PidCacheExpiry)
         return;
-    BuildPidCache();
-    PidCacheExpiry = now + PIDCACHE_TTL_MS;
+    AcquireSRWLockExclusive(&PidLock);
+    if (GetTickCount64() >= PidCacheExpiry) {
+        BuildPidCache();
+        PidCacheExpiry = GetTickCount64() + PIDCACHE_TTL_MS;
+    }
+    ReleaseSRWLockExclusive(&PidLock);
 }
 
 void ForceRebuildPidCache(void) {
-    PidCacheExpiry = 0;
-    MaybeRebuildPidCache();
+    AcquireSRWLockExclusive(&PidLock);
+    BuildPidCache();
+    PidCacheExpiry = GetTickCount64() + PIDCACHE_TTL_MS;
+    ReleaseSRWLockExclusive(&PidLock);
 }
 
 const wchar_t *GetExeFromPid(DWORD pid) {
@@ -118,7 +167,8 @@ HWND LookupHwndCache(const wchar_t *exe, const wchar_t *cls) {
             if (Vdm && SUCCEEDED(IVDM_IsCurrent(Vdm, w, &onCurrent)) &&
                 !onCurrent)
                 continue;
-            Log(LOG_PERF, L"z-order walk: %.2f ms (evict)", FinishMeasuring(tZ));
+            Log(LOG_PERF, L"z-order walk: %.2f ms (evict)",
+                FinishMeasuring(tZ));
             Log(LOG_TRACE, L"evict: same-exe ABOVE in z-order");
             goto evict;
         }
@@ -150,4 +200,3 @@ void StoreHwndCache(const wchar_t *exe, HWND hwnd) {
     StringCchCopyW(HwndCache[slot].exe, EXE_NAME_MAX, exe);
     HwndCache[slot].hwnd = hwnd;
 }
-
