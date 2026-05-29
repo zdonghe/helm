@@ -160,7 +160,6 @@ void BypassForegroundLock(void) {
 typedef struct {
     wchar_t exe[EXE_NAME_MAX];
     const wchar_t *cls;
-    HANDLE hProcess;
 } LaunchPollCtx;
 
 static void FocusHwnd(HWND h) {
@@ -179,6 +178,7 @@ typedef struct {
     const wchar_t *exe;
     const wchar_t *cls;
     HWND found;
+    BOOL viaHook;
     int events;
 } PollHookCtx;
 
@@ -238,15 +238,12 @@ static void CALLBACK PollWinEventProc(HWINEVENTHOOK hook, DWORD event,
     if (cloaked)
         return;
     ctx->found = hwnd;
+    ctx->viaHook = TRUE;
 }
 
 static DWORD WINAPI LaunchPollThread(LPVOID param) {
     LaunchPollCtx *lp = (LaunchPollCtx *)param;
     long long t0 = StartMeasuring();
-    if (lp->hProcess) {
-        CloseHandle(lp->hProcess);
-        lp->hProcess = NULL;
-    }
 
     PollHookCtx hookCtx = {.exe = lp->exe, .cls = lp->cls, .found = NULL};
     PollCtx = &hookCtx;
@@ -262,11 +259,12 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
     FindCtx fc = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
     scans++;
     EnumWindows(EnumProc, (LPARAM)&fc);
-    HWND found = fc.found;
+    if (fc.found)
+        hookCtx.found = fc.found;
 
     DWORD start = GetTickCount();
     DWORD lastScan = start;
-    while (!found && !hookCtx.found) {
+    while (!hookCtx.found) {
         if (GetTickCount() - start >= LAUNCH_POLL_TIMEOUT_MS)
             break;
         DWORD r = MsgWaitForMultipleObjects(0, NULL, FALSE, LAUNCH_BACKSTOP_MS,
@@ -284,7 +282,8 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
             FindCtx bc = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
             scans++;
             EnumWindows(EnumProc, (LPARAM)&bc);
-            found = bc.found;
+            if (bc.found)
+                hookCtx.found = bc.found;
             lastScan = now;
         }
     }
@@ -295,13 +294,12 @@ static DWORD WINAPI LaunchPollThread(LPVOID param) {
         UnhookWinEvent(hookUC);
     PollCtx = NULL;
 
-    HWND target = hookCtx.found ? hookCtx.found : found;
-    if (target) {
+    if (hookCtx.found) {
         Log(LOG_PERF,
             L"launch %ls: detected %.0f ms (hook events %d, scans %d, via %ls)",
             lp->exe, FinishMeasuring(t0), hookCtx.events, scans,
-            hookCtx.found ? L"hook" : L"scan");
-        FocusHwnd(target);
+            hookCtx.viaHook ? L"hook" : L"scan");
+        FocusHwnd(hookCtx.found);
     } else {
         Log(LOG_PERF,
             L"launch %ls: not found %.0f ms (hook events %d, scans %d)",
@@ -407,24 +405,19 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     Log(LOG_PERF, L"launch %ls: %.2f ms", launchExe, FinishMeasuring(tL));
     if (hProcess == INVALID_HANDLE_VALUE)
         return;
+    if (hProcess)
+        CloseHandle(hProcess);
 
     LaunchPollCtx *lp = malloc(sizeof(LaunchPollCtx));
-    if (!lp) {
-        if (hProcess)
-            CloseHandle(hProcess);
+    if (!lp)
         return;
-    }
     StringCchCopyW(lp->exe, EXE_NAME_MAX, ctx->exe);
     lp->cls = ctx->cls;
-    lp->hProcess = hProcess;
     HANDLE t = CreateThread(NULL, 0, LaunchPollThread, lp, 0, NULL);
     if (t)
         CloseHandle(t);
-    else {
-        if (lp->hProcess)
-            CloseHandle(lp->hProcess);
+    else
         free(lp);
-    }
 }
 
 int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
