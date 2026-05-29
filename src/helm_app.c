@@ -172,45 +172,140 @@ static void FocusHwnd(HWND h) {
     BypassForegroundLock();
     SetForegroundWindow(h);
 }
+#define LAUNCH_POLL_TIMEOUT_MS 5000
+#define LAUNCH_BACKSTOP_MS 250
+
+typedef struct {
+    const wchar_t *exe;
+    const wchar_t *cls;
+    HWND found;
+    int events;
+} PollHookCtx;
+
+static __thread PollHookCtx *PollCtx;
+
+static BOOL ExeBasenameOfPid(DWORD pid, wchar_t *out, DWORD cch) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h)
+        return FALSE;
+    wchar_t full[MAX_PATH];
+    DWORD n = MAX_PATH;
+    BOOL ok = QueryFullProcessImageNameW(h, 0, full, &n);
+    CloseHandle(h);
+    if (!ok)
+        return FALSE;
+    const wchar_t *bs = wcsrchr(full, L'\\');
+    StringCchCopyW(out, cch, bs ? bs + 1 : full);
+    return TRUE;
+}
+
+static void CALLBACK PollWinEventProc(HWINEVENTHOOK hook, DWORD event,
+                                      HWND hwnd, LONG idObject, LONG idChild,
+                                      DWORD tid, DWORD t) {
+    (void)hook;
+    (void)event;
+    (void)tid;
+    (void)t;
+    PollHookCtx *ctx = PollCtx;
+    if (!ctx)
+        return;
+    ctx->events++;
+    if (ctx->found || !hwnd)
+        return;
+    if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
+        return;
+    if (GetAncestor(hwnd, GA_ROOT) != hwnd) /* top-level only */
+        return;
+    if (!IsWindowVisible(hwnd))
+        return;
+    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
+        return;
+    if (ctx->cls) {
+        wchar_t cls[256];
+        GetClassNameW(hwnd, cls, 256);
+        if (lstrcmpiW(cls, ctx->cls) != 0)
+            return;
+    }
+    DWORD pid;
+    GetWindowThreadProcessId(hwnd, &pid);
+    wchar_t exe[EXE_NAME_MAX];
+    if (!ExeBasenameOfPid(pid, exe, EXE_NAME_MAX) ||
+        lstrcmpiW(exe, ctx->exe) != 0)
+        return;
+    int cloaked = 0;
+    DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
+    if (cloaked)
+        return;
+    ctx->found = hwnd;
+}
+
 static DWORD WINAPI LaunchPollThread(LPVOID param) {
     LaunchPollCtx *lp = (LaunchPollCtx *)param;
     long long t0 = StartMeasuring();
-
-    /* Fast path: wait until the app's message pump is running, then scan
-     * once. Covers most GUI apps (browsers, terminals, editors). */
     if (lp->hProcess) {
-        WaitForInputIdle(lp->hProcess, 5000);
         CloseHandle(lp->hProcess);
         lp->hProcess = NULL;
-        MaybeRebuildPidCache();
-        FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
-        EnumWindows(EnumProc, (LPARAM)&ctx);
-        if (ctx.found) {
-            Log(LOG_PERF, L"launch %ls: fast-path %.0f ms", lp->exe,
-                FinishMeasuring(t0));
-            FocusHwnd(ctx.found);
-            free(lp);
-            return 0;
-        }
-        Log(LOG_PERF, L"launch %ls: fast-path miss %.0f ms, falling back",
-            lp->exe, FinishMeasuring(t0));
     }
 
-    /* Fallback: console wrappers, Electron, or no process handle.
-     * Force cache rebuild every iteration so TTL does not add latency. */
-    int delay = 30;
-    for (int i = 0; i < 16; i++) {
-        Sleep(delay);
-        delay = delay < 200 ? delay * 2 : 200;
-        ForceRebuildPidCache();
-        FindCtx ctx = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
-        EnumWindows(EnumProc, (LPARAM)&ctx);
-        if (ctx.found) {
-            Log(LOG_PERF, L"launch %ls: fallback iter %d %.0f ms", lp->exe,
-                i + 1, FinishMeasuring(t0));
-            FocusHwnd(ctx.found);
+    PollHookCtx hookCtx = {.exe = lp->exe, .cls = lp->cls, .found = NULL};
+    PollCtx = &hookCtx;
+    DWORD hf = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+    HWINEVENTHOOK hook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                                         NULL, PollWinEventProc, 0, 0, hf);
+    HWINEVENTHOOK hookUC =
+        SetWinEventHook(EVENT_OBJECT_UNCLOAKED, EVENT_OBJECT_UNCLOAKED, NULL,
+                        PollWinEventProc, 0, 0, hf);
+
+    int scans = 0;
+    ForceRebuildPidCache();
+    FindCtx fc = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
+    scans++;
+    EnumWindows(EnumProc, (LPARAM)&fc);
+    HWND found = fc.found;
+
+    DWORD start = GetTickCount();
+    DWORD lastScan = start;
+    while (!found && !hookCtx.found) {
+        if (GetTickCount() - start >= LAUNCH_POLL_TIMEOUT_MS)
             break;
+        DWORD r = MsgWaitForMultipleObjects(0, NULL, FALSE, LAUNCH_BACKSTOP_MS,
+                                            QS_ALLINPUT);
+        if (r == WAIT_OBJECT_0) {
+            MSG msg;
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
+        DWORD now = GetTickCount();
+        if (!hookCtx.found && now - lastScan >= LAUNCH_BACKSTOP_MS) {
+            ForceRebuildPidCache();
+            FindCtx bc = {.exe = lp->exe, .cls = lp->cls, .polling = TRUE};
+            scans++;
+            EnumWindows(EnumProc, (LPARAM)&bc);
+            found = bc.found;
+            lastScan = now;
+        }
+    }
+
+    if (hook)
+        UnhookWinEvent(hook);
+    if (hookUC)
+        UnhookWinEvent(hookUC);
+    PollCtx = NULL;
+
+    HWND target = hookCtx.found ? hookCtx.found : found;
+    if (target) {
+        Log(LOG_PERF,
+            L"launch %ls: detected %.0f ms (hook events %d, scans %d, via %ls)",
+            lp->exe, FinishMeasuring(t0), hookCtx.events, scans,
+            hookCtx.found ? L"hook" : L"scan");
+        FocusHwnd(target);
+    } else {
+        Log(LOG_PERF,
+            L"launch %ls: not found %.0f ms (hook events %d, scans %d)",
+            lp->exe, FinishMeasuring(t0), hookCtx.events, scans);
     }
     free(lp);
     return 0;
