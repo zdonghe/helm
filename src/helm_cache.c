@@ -6,7 +6,7 @@
 #define STATUS_INFO_LENGTH_MISMATCH ((NTSTATUS)0xC0000004L)
 #endif
 
-static PidEntry PidCache[MAX_PIDS];
+static PidEntry PidCache[MAX_PIDS] __attribute__((section(".bss")));
 static int PidCount = 0;
 static ULONGLONG PidCacheExpiry = 0;
 static DWORD ExplorerPid = 0;
