@@ -20,6 +20,10 @@ static int ProcessCommand(const wchar_t *cmd, BOOL global, BOOL admin) {
         return ProcessSwapCommand(cmd + 4);
     if (wcsncmp(cmd, L"uri:", 4) == 0)
         return ProcessUriCommand(cmd + 4);
+    if (wcscmp(cmd, L"paste") == 0)
+        return ProcessPasteCommand(FALSE);
+    if (wcscmp(cmd, L"paste:plain") == 0)
+        return ProcessPasteCommand(TRUE);
     const wchar_t *app = (wcsncmp(cmd, L"app:", 4) == 0) ? cmd + 4 : cmd;
     return ProcessAppCommand(app, global, admin);
 }
@@ -302,7 +306,11 @@ int wmain(int argc, wchar_t *argv[]) {
             L"  max                             maximize foreground window\n"
             L"  min                             minimize foreground window\n"
             L"  swap[:left|right|up|down]       swap snapped neighbour; snap "
-            L"fg if none\n",
+            L"fg if none\n"
+            L"  paste                           paste into fg window "
+            L"(Ctrl+Shift+V in terminals)\n"
+            L"  paste:plain                     paste without formatting "
+            L"(Ctrl+Shift+V)\n",
             argv[0]);
         return 1;
     }

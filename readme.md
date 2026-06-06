@@ -85,6 +85,15 @@ helm uri:ms-actioncenter:controlcenter/bluetooth
 
 Launches the URI.
 
+### Paste
+
+```
+helm paste
+helm paste:plain
+```
+
+Injects a paste keystroke into the focused window. `paste` sends Ctrl+V, except in Windows Terminal where it sends Ctrl+Shift+V instead (the terminal's native paste binding). `paste:plain` always sends Ctrl+Shift+V regardless of window class - useful for paste-without-formatting in apps that support it.
+
 ## Kanata integration
 
 `kanata-bridge` connects to kanata's TCP socket and routes by prefix:

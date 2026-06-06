@@ -278,3 +278,6 @@ int ProcessMinCommand(void);
 
 /* helm_uri.c */
 int ProcessUriCommand(const wchar_t *arg);
+
+/* helm_paste.c */
+int ProcessPasteCommand(BOOL plain);
