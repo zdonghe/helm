@@ -171,6 +171,8 @@ static void RunServer(void) {
                 flags.global = TRUE;
             else if (lstrcmpiW(start, L"--admin") == 0)
                 flags.admin = TRUE;
+            else if (lstrcmpiW(start, L"--new") == 0)
+                flags.new_flag = TRUE;
             else if (!cmd[0])
                 StringCchCopyW(cmd, 1024, start);
             if (!saved)
@@ -295,7 +297,7 @@ int wmain(int argc, wchar_t *argv[]) {
     if (!cmdBuf[0]) {
         fwprintf(
             stderr,
-            L"Usage: %s <command> [--global] [--admin]\n"
+            L"Usage: %s <command> [--global] [--admin] [--new]\n"
             L"  app:<exe>                       focus or launch app\n"
             L"  uri:<uri>                       open URI in default handler\n"
             L"  vd:<n>                          switch to virtual desktop n\n"
@@ -309,7 +311,12 @@ int wmain(int argc, wchar_t *argv[]) {
             L"  paste                           paste into fg window "
             L"(Ctrl+Shift+V in terminals)\n"
             L"  paste:plain                     paste without formatting "
-            L"(Ctrl+Shift+V)\n",
+            L"(Ctrl+Shift+V)\n"
+            L"\n"
+            L"  Flags (app: only):\n"
+            L"    --global  look across all virtual desktops\n"
+            L"    --admin   launch the app elevated\n"
+            L"    --new     skip existing windows, always launch\n",
             argv[0]);
         return 1;
     }

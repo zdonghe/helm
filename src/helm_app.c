@@ -426,7 +426,8 @@ int ProcessAppCommand(const wchar_t *arg, const CmdFlags *flags) {
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     const wchar_t *cls = AutoClass(matchExe);
-    if (!flags->global) {
+
+    if (!flags->new_flag && !flags->global) {
         HWND cached = LookupHwndCache(matchExe, cls);
         if (cached) {
             Log(LOG_PERF, L"app %ls: hwnd-cache hit %.2f ms", matchExe,
@@ -435,14 +436,19 @@ int ProcessAppCommand(const wchar_t *arg, const CmdFlags *flags) {
             return 0;
         }
     }
+
     MaybeRebuildPidCache();
-    long long t1 = StartMeasuring();
+
     FindCtx ctx = {.exe = matchExe, .cls = cls, .global = flags->global};
-    EnumWindows(EnumProc, (LPARAM)&ctx);
-    Log(LOG_PERF, L"app %ls: EnumWindows %.2f ms found=%d", matchExe,
-        FinishMeasuring(t1), ctx.found != NULL);
-    if (ctx.found && !flags->global)
-        StoreHwndCache(matchExe, ctx.found);
+    if (!flags->new_flag) {
+        long long t1 = StartMeasuring();
+        EnumWindows(EnumProc, (LPARAM)&ctx);
+        Log(LOG_PERF, L"app %ls: EnumWindows %.2f ms found=%d", matchExe,
+            FinishMeasuring(t1), ctx.found != NULL);
+        if (ctx.found && !flags->global)
+            StoreHwndCache(matchExe, ctx.found);
+    }
+
     FocusOrLaunch(&ctx, launchExe, flags);
     Log(LOG_PERF, L"app %ls: total %.2f ms", matchExe, FinishMeasuring(t0));
     return 0;

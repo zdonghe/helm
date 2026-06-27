@@ -255,6 +255,7 @@ typedef struct {
 typedef struct {
     BOOL global;
     BOOL admin;
+    BOOL new_flag;
 } CmdFlags;
 
 /* ============================================================

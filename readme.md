@@ -15,9 +15,10 @@ helm app:firefox
 helm app:wt
 helm app:msedge --global
 helm app:wt --admin
+helm app:wt --new
 ```
 
-Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin. `--all` is an alias/alternative to `--global`.
+Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin. `--all` is an alias/alternative to `--global`. `--new` skips existing windows, and always launches.
 
 Special aliases: `wt` and `windowsterminal` both resolve to `WindowsTerminal.exe`.
 
@@ -116,13 +117,6 @@ Example kanata layer (in `.kbd` config):
 )
 ```
 
-Or using kanata's TCP output with kanata-bridge listening:
-
-```
-;; kanata sends MessagePush {"message": "app:firefox"}
-;; bridge strips prefix, sends L"firefox" to \\.\pipe\helm
-```
-
 
 ## Building
 
@@ -132,7 +126,7 @@ Requires GCC (MinGW-w64). Run `build.ps1` from a PowerShell prompt:
 .\build.ps1
 ```
 
-This produces `helm.exe` and `kanata-bridge.exe`.
+This produces `helm.exe`.
 
 **Dependencies** (all Win32, no external libs):
 - `helm.exe`: `ole32`, `user32`, `shell32`, `dwmapi`, `pathcch`
