@@ -4,6 +4,10 @@
 #define COBJMACROS
 #include <windows.h>
 
+#ifndef EVENT_OBJECT_UNCLOAKED
+#define EVENT_OBJECT_UNCLOAKED 0x8018
+#endif
+
 #include <dwmapi.h>
 #include <objbase.h>
 #include <shellapi.h>
