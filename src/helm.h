@@ -249,6 +249,15 @@ typedef struct {
 } AdjacentCtx;
 
 /* ============================================================
+ * Command flags
+ * ============================================================ */
+
+typedef struct {
+    BOOL global;
+    BOOL admin;
+} CmdFlags;
+
+/* ============================================================
  * Function declarations
  * ============================================================ */
 
@@ -262,7 +271,7 @@ DWORD GetExplorerPid(void);
 
 /* helm_app.c */
 void BypassForegroundLock(void);
-int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin);
+int ProcessAppCommand(const wchar_t *arg, const CmdFlags *flags);
 BOOL IsElevated(void);
 
 /* helm_vd.c */

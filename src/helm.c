@@ -7,7 +7,7 @@ IVDMI *VdmInternal = NULL;
  * Top-level command dispatcher
  * ============================================================ */
 
-static int ProcessCommand(const wchar_t *cmd, BOOL global, BOOL admin) {
+static int ProcessCommand(const wchar_t *cmd, const CmdFlags *flags) {
     if (wcsncmp(cmd, L"vd:", 3) == 0)
         return ProcessVdCommand(cmd + 3);
     if (wcsncmp(cmd, L"sz:", 3) == 0)
@@ -25,7 +25,7 @@ static int ProcessCommand(const wchar_t *cmd, BOOL global, BOOL admin) {
     if (wcscmp(cmd, L"paste:plain") == 0)
         return ProcessPasteCommand(TRUE);
     const wchar_t *app = (wcsncmp(cmd, L"app:", 4) == 0) ? cmd + 4 : cmd;
-    return ProcessAppCommand(app, global, admin);
+    return ProcessAppCommand(app, flags);
 }
 
 /* ============================================================
@@ -154,8 +154,7 @@ static void RunServer(void) {
         read &= ~1u;
         buf[read / sizeof(wchar_t)] = 0;
         wchar_t cmd[1024] = {0};
-        BOOL global = FALSE;
-        BOOL admin = FALSE;
+        CmdFlags flags = {0};
         wchar_t *p = buf;
         while (*p) {
             while (*p == L' ' || *p == L'\t')
@@ -169,9 +168,9 @@ static void RunServer(void) {
             *p = 0;
             if (lstrcmpiW(start, L"--global") == 0 ||
                 lstrcmpiW(start, L"--all") == 0)
-                global = TRUE;
+                flags.global = TRUE;
             else if (lstrcmpiW(start, L"--admin") == 0)
-                admin = TRUE;
+                flags.admin = TRUE;
             else if (!cmd[0])
                 StringCchCopyW(cmd, 1024, start);
             if (!saved)
@@ -180,7 +179,7 @@ static void RunServer(void) {
             p++;
         }
         if (cmd[0]) {
-            ProcessCommand(cmd, global, admin);
+            ProcessCommand(cmd, &flags);
             Log(LOG_PERF, L"cmd \"%ls\": pipe→done %.2f ms", cmd,
                 FinishMeasuring(t0));
         }

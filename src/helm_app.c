@@ -377,7 +377,8 @@ static HANDLE DirectLaunch(const wchar_t *exe) {
     return pi.hProcess;
 }
 
-static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
+static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe,
+                         const CmdFlags *flags) {
     if (ctx->found) {
         FocusHwnd(ctx->found);
         return;
@@ -386,7 +387,7 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
     long long tL = StartMeasuring();
     HANDLE hProcess;
 
-    if (admin) {
+    if (flags->admin) {
         hProcess = ShellLaunch(launchExe, L"runas");
     } else if (IsElevated()) {
         wchar_t fullPath[MAX_PATH] = {0};
@@ -420,12 +421,12 @@ static void FocusOrLaunch(FindCtx *ctx, const wchar_t *launchExe, BOOL admin) {
         free(lp);
 }
 
-int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
+int ProcessAppCommand(const wchar_t *arg, const CmdFlags *flags) {
     long long t0 = StartMeasuring();
     wchar_t matchExe[MAX_PATH], launchExe[MAX_PATH];
     ResolveTarget(arg, matchExe, launchExe, MAX_PATH);
     const wchar_t *cls = AutoClass(matchExe);
-    if (!global) {
+    if (!flags->global) {
         HWND cached = LookupHwndCache(matchExe, cls);
         if (cached) {
             Log(LOG_PERF, L"app %ls: hwnd-cache hit %.2f ms", matchExe,
@@ -436,13 +437,13 @@ int ProcessAppCommand(const wchar_t *arg, BOOL global, BOOL admin) {
     }
     MaybeRebuildPidCache();
     long long t1 = StartMeasuring();
-    FindCtx ctx = {.exe = matchExe, .cls = cls, .global = global};
+    FindCtx ctx = {.exe = matchExe, .cls = cls, .global = flags->global};
     EnumWindows(EnumProc, (LPARAM)&ctx);
     Log(LOG_PERF, L"app %ls: EnumWindows %.2f ms found=%d", matchExe,
         FinishMeasuring(t1), ctx.found != NULL);
-    if (ctx.found && !global)
+    if (ctx.found && !flags->global)
         StoreHwndCache(matchExe, ctx.found);
-    FocusOrLaunch(&ctx, launchExe, admin);
+    FocusOrLaunch(&ctx, launchExe, flags);
     Log(LOG_PERF, L"app %ls: total %.2f ms", matchExe, FinishMeasuring(t0));
     return 0;
 }
