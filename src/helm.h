@@ -199,8 +199,71 @@ struct IVDMI {
     const IVDMIVtbl *lpVtbl;
 };
 
+/* --- IVirtualDesktopNotificationService --- */
+static const GUID SID_VdNotifSvc = {
+    0xA501FDEC,
+    0x4A09,
+    0x464C,
+    {0xAE, 0x4E, 0x1B, 0x9C, 0x21, 0xB8, 0x49, 0x18}};
+static const IID IID_IVdNotifSvc = {
+    0x0CD45E71,
+    0xD927,
+    0x4F15,
+    {0x8B, 0x0A, 0x8F, 0xEF, 0x52, 0x53, 0x37, 0xBF}};
+typedef struct IVdNotifSvc IVdNotifSvc;
+typedef struct {
+    COM_IUNK_VTBL(IVdNotifSvc);
+    HRESULT(STDMETHODCALLTYPE *Register)(IVdNotifSvc *, void *, DWORD *);
+    HRESULT(STDMETHODCALLTYPE *Unregister)(IVdNotifSvc *, DWORD);
+} IVdNotifSvcVtbl;
+struct IVdNotifSvc {
+    const IVdNotifSvcVtbl *lpVtbl;
+};
+
+/* --- IVirtualDesktopNotification (Win11 24H2, build 26100+) --- */
+static const IID IID_IVdNotification = {
+    0xB9E5E94D,
+    0x233E,
+    0x49AB,
+    {0xAF, 0x5C, 0x2B, 0x45, 0x41, 0xC3, 0xAA, 0xDE}};
+typedef struct IVdNotification IVdNotification;
+typedef struct {
+    COM_IUNK_VTBL(IVdNotification);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopCreated)(IVdNotification *,
+                                                      IVirtualDesktop *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopDestroyBegin)(IVdNotification *,
+                                                           IVirtualDesktop *,
+                                                           IVirtualDesktop *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopDestroyFailed)(IVdNotification *,
+                                                            IVirtualDesktop *,
+                                                            IVirtualDesktop *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopDestroyed)(IVdNotification *,
+                                                        IVirtualDesktop *,
+                                                        IVirtualDesktop *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopMoved)(IVdNotification *,
+                                                    IVirtualDesktop *, UINT,
+                                                    UINT);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopNameChanged)(IVdNotification *,
+                                                          IVirtualDesktop *,
+                                                          void *);
+    HRESULT(STDMETHODCALLTYPE *ViewVirtualDesktopChanged)(IVdNotification *,
+                                                          void *);
+    HRESULT(STDMETHODCALLTYPE *CurrentVirtualDesktopChanged)(IVdNotification *,
+                                                             IVirtualDesktop *,
+                                                             IVirtualDesktop *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopWallpaperChanged)(
+        IVdNotification *, IVirtualDesktop *, void *);
+    HRESULT(STDMETHODCALLTYPE *VirtualDesktopSwitched)(IVdNotification *,
+                                                       IVirtualDesktop *, int);
+    HRESULT(STDMETHODCALLTYPE *RemoteVirtualDesktopConnected)(
+        IVdNotification *, IVirtualDesktop *);
+} IVdNotificationVtbl;
+struct IVdNotification {
+    const IVdNotificationVtbl *lpVtbl;
+};
+
 /* ============================================================
- * Shared globals  (defined in helm.c, extern everywhere else)
+ * Shared globals
  * ============================================================ */
 
 extern IVDM *Vdm;          /* public VDM — current-desktop check  */
@@ -231,7 +294,7 @@ typedef struct {
 #define MIN_DIM 50
 
 /* ============================================================
- * AdjacentCtx — shared between helm_sz.c and helm_swap.c
+ * AdjacentCtx - shared between helm_sz.c and helm_swap.c
  *
  * Set exactly ONE of edgeX/edgeY/rightEdgeX/bottomEdgeY; leave others -1.
  * refRect = fg rect; used to filter windows sharing the edge coord but not
@@ -277,6 +340,9 @@ BOOL IsElevated(void);
 
 /* helm_vd.c */
 void InitVdInternal(void);
+void VdNotifyInit(void);
+void VdNotifyShutdown(void);
+void VdCacheInvalidate(void);
 int ProcessVdCommand(const wchar_t *arg);
 
 /* helm_sz.c */

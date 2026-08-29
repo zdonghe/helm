@@ -126,6 +126,7 @@ static void RunServer(void) {
 
     CoCreateInstance(&CLSID_VDM, NULL, CLSCTX_ALL, &IID_IVDM, (void **)&Vdm);
     InitVdInternal();
+    VdNotifyInit();
 
     HANDLE pipe = CreatePipeInstance();
     if (pipe != INVALID_HANDLE_VALUE)
@@ -181,12 +182,21 @@ static void RunServer(void) {
             p++;
         }
         if (cmd[0]) {
+            if (wcscmp(cmd, L"--quit") == 0) {
+                Log(LOG_TRACE, L"RunServer: --quit received");
+                DisconnectNamedPipe(pipe);
+                CloseHandle(pipe);
+                pipe = INVALID_HANDLE_VALUE;
+                break;
+            }
             ProcessCommand(cmd, &flags);
             Log(LOG_PERF, L"cmd \"%ls\": pipe→done %.2f ms", cmd,
                 FinishMeasuring(t0));
         }
     }
 
+    VdNotifyShutdown();
+    VdCacheInvalidate();
     if (Vdm)
         IVDM_Release(Vdm);
     if (VdmInternal)
@@ -288,7 +298,7 @@ int wmain(int argc, wchar_t *argv[]) {
     }
     InitLogging();
     if (server) {
-        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        CoInitializeEx(NULL, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
         RunServer();
         CoUninitialize();
         return 0;

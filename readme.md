@@ -95,6 +95,14 @@ helm paste:plain
 
 Injects a paste keystroke into the focused window. `paste` sends Ctrl+V, except in Windows Terminal where it sends Ctrl+Shift+V instead (the terminal's native paste binding). `paste:plain` always sends Ctrl+Shift+V regardless of window class - useful for paste-without-formatting in apps that support it.
 
+### Quit
+
+```
+helm --quit
+```
+
+Shuts the background daemon down.
+
 ## Kanata integration
 
 `kanata-bridge` connects to kanata's TCP socket and routes by prefix:
@@ -128,15 +136,11 @@ Requires GCC (MinGW-w64). Run `build.ps1` from a PowerShell prompt:
 
 This produces `helm.exe`.
 
-**Dependencies** (all Win32, no external libs):
-- `helm.exe`: `ole32`, `user32`, `shell32`, `dwmapi`, `pathcch`
-- `kanata-bridge.exe`: `ws2_32`
-
 ## Architecture
 
-`helm.exe` runs as a hidden background daemon (no console window). The first time you run `helm <command>`, the client mode detects no daemon is running, spawns one with `--server`, waits for a named event `helm-daemon-ready`, then sends the command through the pipe.
+`helm.exe` runs as a hidden background daemon. The first time you run `helm <command>`, the client mode detects no daemon is running, spawns one with `--server`, waits for a named event `helm-daemon-ready`, then sends the command through the pipe.
 
-Subsequent calls connect immediately - round-trip is under a millisecond on localhost named pipes.
+Subsequent calls connect immediately. Round-trip is under a millisecond on localhost named pipes.
 
 The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
 - **PID cache** - process list snapshot, TTL 300ms, binary-searched by PID
