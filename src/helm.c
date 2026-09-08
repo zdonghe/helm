@@ -192,7 +192,7 @@ static void RunServer(void) {
                 break;
             }
             ProcessCommand(cmd, &flags);
-            Log(LOG_PERF, L"cmd \"%ls\": pipe→done %.2f ms", cmd,
+            Log(LOG_PERF, L"cmd \"%ls\": pipe->done %.2f ms", cmd,
                 FinishMeasuring(t0));
         }
     }
@@ -316,7 +316,7 @@ int wmain(int argc, wchar_t *argv[]) {
             L"  vd:send:<n>                     move foreground window to "
             L"desktop n\n"
             L"  sz:left|right|down|up:+/-N      resize snapped window pair\n"
-            L"  mon:left|right|up|down|cycle     move cursor to adjacent monitor\n"
+            L"  mon:left|right|up|down|cycle     switch to adjacent monitor\n"
             L"  max                             maximize foreground window\n"
             L"  min                             minimize foreground window\n"
             L"  swap[:left|right|up|down]       swap snapped neighbour; snap "

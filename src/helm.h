@@ -335,6 +335,7 @@ DWORD GetExplorerPid(void);
 
 /* helm_app.c */
 void BypassForegroundLock(void);
+void FocusHwnd(HWND h);
 int ProcessAppCommand(const wchar_t *arg, const CmdFlags *flags);
 BOOL IsElevated(void);
 

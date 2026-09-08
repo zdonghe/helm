@@ -162,7 +162,7 @@ typedef struct {
     const wchar_t *cls;
 } LaunchPollCtx;
 
-static void FocusHwnd(HWND h) {
+void FocusHwnd(HWND h) {
     if (IsIconic(h))
         ShowWindow(h, SW_RESTORE);
     SetWindowPos(h, HWND_TOP, 0, 0, 0, 0,

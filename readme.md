@@ -55,7 +55,7 @@ helm mon:down
 helm mon:cycle
 ```
 
-Moves the cursor and keyboard focus to the adjacent monitor in the given direction. `mon:cycle` wraps through monitors in enumeration order. Single monitor setups are a no-op.
+Moves the cursor and keyboard focus to the adjacent monitor in the given direction. `mon:cycle` wraps through monitors in enumeration order. Single monitor setups are a no-op. If the target monitor has a visible window, it is focused; otherwise only the cursor moves.
 
 ### Instant maximize
 

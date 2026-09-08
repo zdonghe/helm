@@ -34,18 +34,28 @@ int ProcessMonCommand(const wchar_t *arg) {
         return 1;
     const wchar_t *dir = arg + 1;
 
-    HWND fg = GetForegroundWindow();
-    if (!fg)
+    enum Dir { DIR_CYCLE, DIR_LEFT, DIR_RIGHT, DIR_UP, DIR_DOWN } d;
+    if (wcscmp(dir, L"cycle") == 0)
+        d = DIR_CYCLE;
+    else if (wcscmp(dir, L"left") == 0)
+        d = DIR_LEFT;
+    else if (wcscmp(dir, L"right") == 0)
+        d = DIR_RIGHT;
+    else if (wcscmp(dir, L"up") == 0)
+        d = DIR_UP;
+    else if (wcscmp(dir, L"down") == 0)
+        d = DIR_DOWN;
+    else
         return 1;
-    if (fg == GetShellWindow() || fg == GetDesktopWindow())
-        return 0;
 
     MonList list = {0};
     EnumDisplayMonitors(NULL, NULL, EnumMonProc, (LPARAM)&list);
     if (list.count <= 1)
         return 0;
 
-    HMONITOR cur = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+    POINT cpt;
+    GetCursorPos(&cpt);
+    HMONITOR cur = MonitorFromPoint(cpt, MONITOR_DEFAULTTONEAREST);
     int ci = -1;
     for (int i = 0; i < list.count; i++) {
         if (list.mons[i].hmon == cur) {
@@ -57,7 +67,7 @@ int ProcessMonCommand(const wchar_t *arg) {
         return 1;
 
     int ti;
-    if (wcscmp(dir, L"cycle") == 0) {
+    if (d == DIR_CYCLE) {
         ti = (ci + 1) % list.count;
     } else {
         RECT curRc = list.mons[ci].rc;
@@ -74,24 +84,22 @@ int ProcessMonCommand(const wchar_t *arg) {
             int dy = CenterY(r) - cy;
 
             BOOL match = FALSE;
-            if (wcscmp(dir, L"left") == 0)
+            if (d == DIR_LEFT)
                 match = (dx < 0) &&
                         (abs(dy) < (abs(dx) + 1) / 2 +
                                     (curRc.bottom - curRc.top) / 4);
-            else if (wcscmp(dir, L"right") == 0)
+            else if (d == DIR_RIGHT)
                 match = (dx > 0) &&
                         (abs(dy) < (abs(dx) + 1) / 2 +
                                     (curRc.bottom - curRc.top) / 4);
-            else if (wcscmp(dir, L"up") == 0)
+            else if (d == DIR_UP)
                 match = (dy < 0) &&
                         (abs(dx) < (abs(dy) + 1) / 2 +
                                     (curRc.right - curRc.left) / 4);
-            else if (wcscmp(dir, L"down") == 0)
+            else if (d == DIR_DOWN)
                 match = (dy > 0) &&
                         (abs(dx) < (abs(dy) + 1) / 2 +
                                     (curRc.right - curRc.left) / 4);
-            else
-                return 1;
 
             if (match) {
                 long long dist = (long long)dx * dx + (long long)dy * dy;
@@ -116,21 +124,9 @@ int ProcessMonCommand(const wchar_t *arg) {
     HWND h = WindowFromPoint(pt);
     if (h)
         h = GetAncestor(h, GA_ROOT);
-    if (h == GetDesktopWindow() || h == GetShellWindow()) {
-        INPUT inp[2] = {0};
-        inp[0].type = INPUT_MOUSE;
-        inp[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-        inp[1].type = INPUT_MOUSE;
-        inp[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        SendInput(2, inp, sizeof(INPUT));
-    } else {
-        if (h && IsIconic(h))
-            ShowWindow(h, SW_RESTORE);
-        if (h) {
-            BypassForegroundLock();
-            if (!SetForegroundWindow(h))
-                BringWindowToTop(h);
-        }
+    if (h && h != GetDesktopWindow() && h != GetShellWindow()) {
+        BypassForegroundLock();
+        SetForegroundWindow(h);
     }
     return 0;
 }
