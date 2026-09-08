@@ -45,6 +45,18 @@ helm sz:up:-10
 
 Resizes the focused snapped window by a percentage of monitor width, moving the adjacent window simultaneously. Fills the gap Windows snap leaves - snapping is Win+Left/Right, but there's no native keyboard resize.
 
+### Monitor switching
+
+```
+helm mon:left
+helm mon:right
+helm mon:up
+helm mon:down
+helm mon:cycle
+```
+
+Moves the cursor and keyboard focus to the adjacent monitor in the given direction. `mon:cycle` wraps through monitors in enumeration order. Single monitor setups are a no-op.
+
 ### Instant maximize
 
 ```
@@ -112,6 +124,7 @@ Shuts the background daemon down.
 | `app:firefox` | helm pipe → focus or launch firefox |
 | `vd:2` | helm pipe → switch to virtual desktop 2 |
 | `sz:left:+5` | helm pipe → resize left-snapped window |
+| `mon:left` | helm pipe → focus left monitor |
 
 Example kanata layer (in `.kbd` config):
 

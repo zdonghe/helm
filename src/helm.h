@@ -349,6 +349,9 @@ int ProcessVdCommand(const wchar_t *arg);
 BOOL CALLBACK FindAdjacentProc(HWND hwnd, LPARAM lp);
 int ProcessSzCommand(const wchar_t *arg);
 
+/* helm_mon.c */
+int ProcessMonCommand(const wchar_t *arg);
+
 /* helm_swap.c */
 int ProcessSwapCommand(const wchar_t *arg);
 

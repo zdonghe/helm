@@ -16,6 +16,8 @@ static int ProcessCommand(const wchar_t *cmd, const CmdFlags *flags) {
         return ProcessMaxCommand();
     if (wcscmp(cmd, L"min") == 0)
         return ProcessMinCommand();
+    if (wcsncmp(cmd, L"mon:", 4) == 0)
+        return ProcessMonCommand(cmd + 3);
     if (wcsncmp(cmd, L"swap", 4) == 0 && (cmd[4] == L'\0' || cmd[4] == L':'))
         return ProcessSwapCommand(cmd + 4);
     if (wcsncmp(cmd, L"uri:", 4) == 0)
@@ -314,6 +316,7 @@ int wmain(int argc, wchar_t *argv[]) {
             L"  vd:send:<n>                     move foreground window to "
             L"desktop n\n"
             L"  sz:left|right|down|up:+/-N      resize snapped window pair\n"
+            L"  mon:left|right|up|down|cycle     move cursor to adjacent monitor\n"
             L"  max                             maximize foreground window\n"
             L"  min                             minimize foreground window\n"
             L"  swap[:left|right|up|down]       swap snapped neighbour; snap "
