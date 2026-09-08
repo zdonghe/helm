@@ -1,18 +1,5 @@
 #include "helm.h"
 
-/*
- * Monitor-switching command.
- *
- *   mon:left|right|up|down   move cursor (and focus) to the nearest monitor
- *                            in the given direction
- *   mon:cycle                cycle to the next monitor in enumeration order
- *
- * Spatial matching uses a directional cone: the target must be in the correct
- * half-plane (e.g. dx < 0 for "left") and within a tolerance proportional to
- * the perpendicular distance, plus a quarter of the current monitor's extent
- * along the perpendicular axis.  Ties are broken by Euclidean distance.
- */
-
 #define MAX_MONITORS 16
 
 typedef struct {
@@ -129,12 +116,21 @@ int ProcessMonCommand(const wchar_t *arg) {
     HWND h = WindowFromPoint(pt);
     if (h)
         h = GetAncestor(h, GA_ROOT);
-    if (h && IsIconic(h))
-        ShowWindow(h, SW_RESTORE);
-    if (h) {
-        BypassForegroundLock();
-        if (!SetForegroundWindow(h))
-            BringWindowToTop(h);
+    if (h == GetDesktopWindow() || h == GetShellWindow()) {
+        INPUT inp[2] = {0};
+        inp[0].type = INPUT_MOUSE;
+        inp[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        inp[1].type = INPUT_MOUSE;
+        inp[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        SendInput(2, inp, sizeof(INPUT));
+    } else {
+        if (h && IsIconic(h))
+            ShowWindow(h, SW_RESTORE);
+        if (h) {
+            BypassForegroundLock();
+            if (!SetForegroundWindow(h))
+                BringWindowToTop(h);
+        }
     }
     return 0;
 }
