@@ -57,6 +57,18 @@ helm mon:cycle
 
 Moves the cursor and keyboard focus to the adjacent monitor in the given direction. `mon:cycle` wraps through monitors in enumeration order. Single monitor setups are a no-op. If the target monitor has a visible window, it is focused; otherwise only the cursor moves.
 
+### Monitor send
+
+```
+helm mon:send:left
+helm mon:send:right
+helm mon:send:up
+helm mon:send:down
+helm mon:send:cycle
+```
+
+Moves the foreground window to the adjacent monitor in the given direction, preserving its size.
+
 ### Instant maximize
 
 ```
@@ -125,6 +137,7 @@ Shuts the background daemon down.
 | `vd:2` | helm pipe → switch to virtual desktop 2 |
 | `sz:left:+5` | helm pipe → resize left-snapped window |
 | `mon:left` | helm pipe → focus left monitor |
+| `mon:send:left` | helm pipe → send window to left monitor |
 
 Example kanata layer (in `.kbd` config):
 

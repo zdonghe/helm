@@ -34,6 +34,12 @@ int ProcessMonCommand(const wchar_t *arg) {
         return 1;
     const wchar_t *dir = arg + 1;
 
+    BOOL send = FALSE;
+    if (wcsncmp(dir, L"send:", 5) == 0) {
+        send = TRUE;
+        dir += 5;
+    }
+
     enum Dir { DIR_CYCLE, DIR_LEFT, DIR_RIGHT, DIR_UP, DIR_DOWN } d;
     if (wcscmp(dir, L"cycle") == 0)
         d = DIR_CYCLE;
@@ -53,14 +59,22 @@ int ProcessMonCommand(const wchar_t *arg) {
     if (list.count <= 1)
         return 0;
 
-    POINT cpt;
-    GetCursorPos(&cpt);
-    HMONITOR cur = MonitorFromPoint(cpt, MONITOR_DEFAULTTONEAREST);
+    HWND fg = GetForegroundWindow();
+    HMONITOR cur;
+    if (send)
+        cur = fg ? MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) : NULL;
+    else {
+        POINT cpt;
+        GetCursorPos(&cpt);
+        cur = MonitorFromPoint(cpt, MONITOR_DEFAULTTONEAREST);
+    }
     int ci = -1;
-    for (int i = 0; i < list.count; i++) {
-        if (list.mons[i].hmon == cur) {
-            ci = i;
-            break;
+    if (cur) {
+        for (int i = 0; i < list.count; i++) {
+            if (list.mons[i].hmon == cur) {
+                ci = i;
+                break;
+            }
         }
     }
     if (ci < 0)
@@ -118,15 +132,44 @@ int ProcessMonCommand(const wchar_t *arg) {
     const RECT *tgt = &list.mons[ti].rc;
     int tx = CenterX(tgt);
     int ty = CenterY(tgt);
+
+    if (send) {
+        WORD vk = d == DIR_LEFT  ? VK_LEFT
+                : d == DIR_RIGHT ? VK_RIGHT
+                : d == DIR_UP    ? VK_UP
+                : d == DIR_DOWN  ? VK_DOWN
+                                : VK_RIGHT;
+
+        INPUT release[] = {
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_MENU,    .dwFlags = KEYEVENTF_KEYUP}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LMENU,   .dwFlags = KEYEVENTF_KEYUP}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_RMENU,   .dwFlags = KEYEVENTF_KEYUP}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_CONTROL, .dwFlags = KEYEVENTF_KEYUP}},
+        };
+        SendInput(4, release, sizeof(INPUT));
+
+        INPUT inp[6] = {
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = vk}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT, .dwFlags = KEYEVENTF_KEYUP}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}},
+        };
+        SendInput(6, inp, sizeof(INPUT));
+    }
+
     SetCursorPos(tx, ty);
 
-    POINT pt = {tx, ty};
-    HWND h = WindowFromPoint(pt);
-    if (h)
-        h = GetAncestor(h, GA_ROOT);
-    if (h && h != GetDesktopWindow() && h != GetShellWindow()) {
-        BypassForegroundLock();
-        SetForegroundWindow(h);
+    if (!send) {
+        POINT pt = {tx, ty};
+        HWND h = WindowFromPoint(pt);
+        if (h)
+            h = GetAncestor(h, GA_ROOT);
+        if (h && h != GetDesktopWindow() && h != GetShellWindow()) {
+            BypassForegroundLock();
+            SetForegroundWindow(h);
+        }
     }
     return 0;
 }

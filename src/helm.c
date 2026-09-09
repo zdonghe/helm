@@ -317,6 +317,8 @@ int wmain(int argc, wchar_t *argv[]) {
             L"desktop n\n"
             L"  sz:left|right|down|up:+/-N      resize snapped window pair\n"
             L"  mon:left|right|up|down|cycle     switch to adjacent monitor\n"
+            L"  mon:send:<dir>                  move window to adjacent "
+            L"monitor\n"
             L"  max                             maximize foreground window\n"
             L"  min                             minimize foreground window\n"
             L"  swap[:left|right|up|down]       swap snapped neighbour; snap "
