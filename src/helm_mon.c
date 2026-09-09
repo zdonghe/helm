@@ -160,6 +160,7 @@ static void SendToMonitor(const RECT *tgt, enum Dir d) {
 }
 
 int ProcessMonCommand(const wchar_t *arg) {
+    long long tTotal = StartMeasuring();
     BOOL send = FALSE;
     if (wcsncmp(arg, L"send:", 5) == 0) {
         send = TRUE;
@@ -172,7 +173,9 @@ int ProcessMonCommand(const wchar_t *arg) {
     if (d == DIR_INVALID)
         return 1;
 
+    long long tE = StartMeasuring();
     MonList list = EnumMonitors();
+    Log(LOG_PERF, L"EnumMonitors: %.2f ms", FinishMeasuring(tE));
     if (list.count <= 1)
         return 0;
 
@@ -191,14 +194,20 @@ int ProcessMonCommand(const wchar_t *arg) {
     if (ci < 0)
         return 1;
 
+    long long tT = StartMeasuring();
     int ti = FindTargetMonIndex(&list, ci, d);
+    Log(LOG_PERF, L"FindTargetMonIndex: %.2f ms", FinishMeasuring(tT));
     if (ti < 0)
         return 0;
 
+    long long tA = StartMeasuring();
     const RECT *tgt = &list.mons[ti].rc;
     if (send)
         SendToMonitor(tgt, d);
     else
         GotoMonitor(tgt);
+    Log(LOG_PERF, L"action: %.2f ms", FinishMeasuring(tA));
+
+    Log(LOG_PERF, L"ProcessMonCommand total: %.2f ms", FinishMeasuring(tTotal));
     return 0;
 }
