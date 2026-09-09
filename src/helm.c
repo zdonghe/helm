@@ -17,7 +17,7 @@ static int ProcessCommand(const wchar_t *cmd, const CmdFlags *flags) {
     if (wcscmp(cmd, L"min") == 0)
         return ProcessMinCommand();
     if (wcsncmp(cmd, L"mon:", 4) == 0)
-        return ProcessMonCommand(cmd + 3);
+        return ProcessMonCommand(cmd + 4);
     if (wcsncmp(cmd, L"swap", 4) == 0 && (cmd[4] == L'\0' || cmd[4] == L':'))
         return ProcessSwapCommand(cmd + 4);
     if (wcsncmp(cmd, L"uri:", 4) == 0)
