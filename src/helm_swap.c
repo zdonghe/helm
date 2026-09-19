@@ -1,5 +1,7 @@
 #include "helm.h"
 
+#define DWMWA_TRANSITIONS_FORCEDISABLED 3
+
 static BOOL IsSnappedTo(HWND fg, const wchar_t *dir) {
     HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {.cbSize = sizeof(mi)};
@@ -22,35 +24,63 @@ static BOOL IsSnappedTo(HWND fg, const wchar_t *dir) {
 }
 
 /*
- * Inject Win+Alt+dir to trigger Windows' own snap.
- *
- * Win+Alt+dir is used for all four directions: it consistently snaps to the
- * target half without the cycling/monitor-hopping behaviour of Win+Left/Right.
- *
- * Down only: two presses are needed when the window is maximized (first
- * press restores, second snaps).
+ * Snap the foreground window to the target half of its monitor.
  */
 static void NativeSnap(HWND fg, const wchar_t *dir) {
+    BOOL forced = TRUE;
+    DwmSetWindowAttribute(fg, DWMWA_TRANSITIONS_FORCEDISABLED, &forced,
+                          sizeof(forced));
+
+    if (IsZoomed(fg)) {
+        RECT r;
+        GetWindowRect(fg, &r);
+        SetWindowLongW(fg, GWL_STYLE,
+                       GetWindowLongW(fg, GWL_STYLE) & ~WS_MAXIMIZE);
+        SetWindowPos(fg, NULL, r.left, r.top, r.right - r.left,
+                     r.bottom - r.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
     WORD vk = wcscmp(dir, L"left") == 0    ? VK_LEFT
               : wcscmp(dir, L"right") == 0 ? VK_RIGHT
               : wcscmp(dir, L"up") == 0    ? VK_UP
                                            : VK_DOWN;
-    int repeat = (wcscmp(dir, L"down") == 0 && IsZoomed(fg)) ? 2 : 1;
-    INPUT inp[24];
-    int n = 0;
 
-    for (int r = 0; r < repeat; r++) {
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}};
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_MENU}};
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = vk}};
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
-                           .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}};
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
-                           .ki = {.wVk = VK_MENU, .dwFlags = KEYEVENTF_KEYUP}};
-        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
-                           .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}};
-    }
+    INPUT release[] = {
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_MENU, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_LMENU, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_RMENU, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_CONTROL, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_LCONTROL, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_RCONTROL, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_SHIFT, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_LSHIFT, .dwFlags = KEYEVENTF_KEYUP}},
+        {.type = INPUT_KEYBOARD,
+         .ki = {.wVk = VK_RSHIFT, .dwFlags = KEYEVENTF_KEYUP}},
+    };
+    SendInput(9, release, sizeof(INPUT));
+
+    INPUT inp[5];
+    int n = 0;
+    inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}};
+    inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = vk}};
+    inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                       .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}};
+    inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                       .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}};
     SendInput(n, inp, sizeof(INPUT));
+
+    forced = FALSE;
+    DwmSetWindowAttribute(fg, DWMWA_TRANSITIONS_FORCEDISABLED, &forced,
+                          sizeof(forced));
 }
 
 /*

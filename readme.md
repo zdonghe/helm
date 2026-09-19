@@ -18,7 +18,7 @@ helm app:wt --admin
 helm app:wt --new
 ```
 
-Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all  virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin. `--all` is an alias/alternative to `--global`. `--new` skips existing windows, and always launches.
+Focuses the window if it exists on the current virtual desktop, launches it if not. `--global` searches across all virtual desktops. Supports launcher chains (Windows Terminal, Electron apps, Steam) via a background poll thread. `--admin` launches the app as admin. `--all` is an alias/alternative to `--global`. `--new` skips existing windows, and always launches.
 
 Special aliases: `wt` and `windowsterminal` both resolve to `WindowsTerminal.exe`.
 
@@ -87,7 +87,6 @@ helm min
 
 Instantly minimize the window.
 
-
 ### Swap
 
 ```
@@ -131,12 +130,12 @@ Shuts the background daemon down.
 
 `kanata-bridge` connects to kanata's TCP socket and routes by prefix:
 
-| Prefix | Destination |
-|--------|-------------|
-| `app:firefox` | helm pipe → focus or launch firefox |
-| `vd:2` | helm pipe → switch to virtual desktop 2 |
-| `sz:left:+5` | helm pipe → resize left-snapped window |
-| `mon:left` | helm pipe → focus left monitor |
+| Prefix          | Destination                             |
+| --------------- | --------------------------------------- |
+| `app:firefox`   | helm pipe → focus or launch firefox     |
+| `vd:2`          | helm pipe → switch to virtual desktop 2 |
+| `sz:left:+5`    | helm pipe → resize left-snapped window  |
+| `mon:left`      | helm pipe → focus left monitor          |
 | `mon:send:left` | helm pipe → send window to left monitor |
 
 Example kanata layer (in `.kbd` config):
@@ -150,7 +149,6 @@ Example kanata layer (in `.kbd` config):
   ;; 1 (push-msg "vd:1")
 )
 ```
-
 
 ## Building
 
@@ -169,12 +167,15 @@ This produces `helm.exe`.
 Subsequent calls connect immediately. Round-trip is under a millisecond on localhost named pipes.
 
 The daemon keeps two caches to avoid `EnumWindows` on every keystroke:
+
 - **PID cache** - process list snapshot, TTL 300ms, binary-searched by PID
 - HWND cache - 16-slot LRU of exe → window handle; the topmost match is always cached, and on hit the entry is revalidated (window exists, visible, owned by the same exe, not cloaked) and confirmed still topmost in z-order, self-evicting if stale
 
 ## Weird Windows Behaviors
 
-There are two undocumented shortcuts I found while working on this project, Win + Alt + Left and Win + Alt + Right. They seem to be like "absolute snapping", where no matter the situation, the window will snap to the entire left/right half. The biggest difference between Win + Alt + Left/Right and Win + Left/Right is when the window is currently snapped to the top or bottom half. Normally, with Win + Left/Right, the window will become a quarter window, whereas with Win + Alt + Left/Right, it snaps to the full left/right half.
+There are two undocumented shortcuts I found while working on this project, Win + Alt + Left and Win + Alt + Right. They seem to be like "absolute snapping", where no matter the situation, the window will snap to the entire left/right half. The biggest difference between Win + Alt + Left/Right and Win + Left/Right is when the window is currently snapped to the top or bottom half. Normally, with Win + Left/Right, the window will become a quarter window, whereas with Win + Alt + Left/Right, it snaps to the full left/right half (this behavior only applies on small monitors).
+
+On large monitors, Win + Alt + Left/Right split the window into thirds, instead of halves.
 
 Second, Win + Alt + Down requires two presses from a maximized window to snap to the bottom, whereas Win + Alt + any other direction instantly snaps to the correct position.
 
@@ -185,4 +186,3 @@ Thanks to [MScholtes/VirtualDesktop](https://github.com/MScholtes/VirtualDesktop
 ## Why not komorebi / GlazeWM
 
 Both are great for full tiling layouts. If you want i3-style automatic tiling, use them. Helm is for a different workflow: you already know where your windows go, you just want fast keyboard control over focus, desktops, and snap sizing. No tiling engine, no layout rules, no advanced config, just the default Windows snapping enhanced.
-
