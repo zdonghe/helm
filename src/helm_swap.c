@@ -70,12 +70,17 @@ static void NativeSnap(HWND fg, const wchar_t *dir) {
     };
     SendInput(9, release, sizeof(INPUT));
 
-    INPUT inp[5];
+    INPUT inp[7];
     int n = 0;
     inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LWIN}};
+    if (vk == VK_UP || vk == VK_DOWN)
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = VK_LMENU}};
     inp[n++] = (INPUT){.type = INPUT_KEYBOARD, .ki = {.wVk = vk}};
     inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
                        .ki = {.wVk = vk, .dwFlags = KEYEVENTF_KEYUP}};
+    if (vk == VK_UP || vk == VK_DOWN)
+        inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
+                           .ki = {.wVk = VK_LMENU, .dwFlags = KEYEVENTF_KEYUP}};
     inp[n++] = (INPUT){.type = INPUT_KEYBOARD,
                        .ki = {.wVk = VK_LWIN, .dwFlags = KEYEVENTF_KEYUP}};
     SendInput(n, inp, sizeof(INPUT));
