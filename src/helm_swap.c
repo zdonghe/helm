@@ -2,6 +2,8 @@
 
 #define DWMWA_TRANSITIONS_FORCEDISABLED 3
 
+BOOL WINAPI IsWindowArranged(HWND);
+
 static BOOL IsSnappedTo(HWND fg, const wchar_t *dir) {
     HMONITOR mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {.cbSize = sizeof(mi)};
@@ -32,13 +34,13 @@ static void NativeSnap(HWND fg, const wchar_t *dir) {
                           sizeof(forced));
 
     if (IsZoomed(fg)) {
-        RECT r;
-        GetWindowRect(fg, &r);
         SetWindowLongW(fg, GWL_STYLE,
                        GetWindowLongW(fg, GWL_STYLE) & ~WS_MAXIMIZE);
-        SetWindowPos(fg, NULL, r.left, r.top, r.right - r.left,
-                     r.bottom - r.top,
-                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    } else if (IsWindowArranged(fg)) {
+        WINDOWPLACEMENT wp = {.length = sizeof(wp)};
+        GetWindowRect(fg, &wp.rcNormalPosition);
+        wp.showCmd = SW_SHOWNORMAL;
+        SetWindowPlacement(fg, &wp);
     }
 
     WORD vk = wcscmp(dir, L"left") == 0    ? VK_LEFT
